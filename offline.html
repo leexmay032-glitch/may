@@ -197,6 +197,28 @@ body.left-collapsed #left-toggle{left:0}
 
 /* Loading */
 #loading{position:fixed;inset:0;background:var(--bg);display:flex;align-items:center;justify-content:center;z-index:9999;font-size:18px;color:var(--accent)}
+/* AI Image Analysis */
+#rp-image-ai{display:none;padding:12px;border-top:1px solid var(--border)}
+#rp-image-ai.visible{display:block}
+.ai-parse-btn{width:100%;padding:9px;background:linear-gradient(135deg,#667eea,#764ba2);border:none;border-radius:6px;color:white;cursor:pointer;font-size:13px;font-weight:bold;display:flex;align-items:center;justify-content:center;gap:6px;transition:opacity 0.2s;margin-bottom:6px}
+.ai-parse-btn:hover{opacity:0.88}
+.ai-parse-btn:disabled{opacity:0.5;cursor:not-allowed}
+.ai-parse-btn.secondary{background:rgba(255,255,255,0.1);border:1px solid var(--border);font-weight:normal}
+.ai-progress{font-size:11px;color:var(--accent);text-align:center;padding:4px;display:none;animation:pulse 1.5s infinite}
+.ai-progress.active{display:block}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.5}}
+.ai-result-info{font-size:11px;color:var(--success);text-align:center;padding:4px;display:none}
+.ai-result-info.visible{display:block}
+/* API Key Modal */
+#apikey-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.75);z-index:1300;display:none;align-items:center;justify-content:center}
+#apikey-overlay.open{display:flex}
+.apikey-modal{background:var(--panel-bg);border:1px solid var(--border);border-radius:10px;padding:22px 24px;width:400px;box-shadow:0 8px 32px rgba(0,0,0,0.5)}
+.apikey-modal h3{margin-bottom:4px;font-size:15px;display:flex;align-items:center;gap:6px}
+.apikey-modal .sub{font-size:12px;color:var(--text-dim);margin-bottom:14px}
+.apikey-modal input{width:100%;padding:9px 10px;background:rgba(255,255,255,0.08);border:1px solid var(--border);border-radius:5px;color:var(--text);font-size:13px;font-family:monospace;margin-bottom:6px}
+.apikey-modal .hint{font-size:11px;color:var(--text-dim);margin-bottom:14px;line-height:1.5}
+.apikey-modal .hint a{color:var(--accent)}
+.apikey-modal-btns{display:flex;gap:8px;justify-content:flex-end}
 </style>
 </head>
 <body>
@@ -253,6 +275,8 @@ body.left-collapsed #left-toggle{left:0}
   <button class="tb-btn" id="btn-zoom-in" title="放大"><i class="fa fa-plus"></i></button>
   <div class="tb-sep"></div>
   <button class="tb-btn" id="btn-theme" title="切换主题"><i class="fa fa-moon"></i></button>
+  <div class="tb-sep"></div>
+  <button class="tb-btn" id="btn-apikey" title="设置 Claude API Key（用于AI解析图片）" style="color:#a78bfa"><i class="fa fa-key"></i> API Key</button>
 </div>
 
 <!-- Main area -->
@@ -384,6 +408,21 @@ body.left-collapsed #left-toggle{left:0}
       </div>
       <div class="rp-section">
         <button class="btn-danger" id="rp-delete-node"><i class="fa fa-trash"></i> 删除节点</button>
+      </div>
+      <!-- AI Image Analysis – shown only for image nodes -->
+      <div id="rp-image-ai">
+        <div class="rp-title" style="margin-bottom:10px"><i class="fa fa-magic" style="color:#a78bfa"></i> AI 解析图谱</div>
+        <p style="font-size:11px;color:var(--text-dim);margin-bottom:10px;line-height:1.5">
+          将图片中的节点、连线、文字、箭头识别为可编辑的图谱元素。
+        </p>
+        <button class="ai-parse-btn" id="rp-ai-parse">
+          <i class="fa fa-wand-magic-sparkles"></i> 开始 AI 解析
+        </button>
+        <button class="ai-parse-btn secondary" id="rp-ai-parse-replace" title="解析后删除原图片节点">
+          <i class="fa fa-sync-alt"></i> 解析并替换图片
+        </button>
+        <div class="ai-progress" id="rp-ai-progress">⏳ 正在调用 Claude Vision 分析中...</div>
+        <div class="ai-result-info" id="rp-ai-result"></div>
       </div>
     </div>
     <div id="rp-edge-panel" style="display:none">
@@ -518,6 +557,23 @@ body.left-collapsed #left-toggle{left:0}
     <div class="modal-btns">
       <button class="modal-cancel" id="confirm-cancel">取消</button>
       <button class="modal-confirm" id="confirm-ok">确认</button>
+    </div>
+  </div>
+</div>
+
+<!-- API Key Modal -->
+<div id="apikey-overlay">
+  <div class="apikey-modal">
+    <h3><i class="fa fa-key" style="color:#a78bfa"></i> Claude API Key 设置</h3>
+    <p class="sub">用于 AI 解析图片功能，Key 仅存储在本地浏览器中</p>
+    <input type="password" id="apikey-input" placeholder="sk-ant-api03-..." autocomplete="off">
+    <p class="hint">
+      请前往 <a href="https://console.anthropic.com/api-keys" target="_blank">console.anthropic.com</a> 获取 API Key。<br>
+      Key 不会上传到任何服务器，仅保存在浏览器 localStorage 中。
+    </p>
+    <div class="apikey-modal-btns">
+      <button class="modal-cancel" id="apikey-cancel">取消</button>
+      <button class="modal-confirm" id="apikey-save">保存</button>
     </div>
   </div>
 </div>
@@ -1888,6 +1944,19 @@ function fillNodePanel(node) {
   document.getElementById('rp-stroke').value = node.stroke || '#2C6FAC';
   document.getElementById('rp-strokewidth').value = node.strokeWidth ?? 2;
   document.getElementById('rp-strokewidth-val').textContent = node.strokeWidth ?? 2;
+
+  // Show AI section only for image nodes
+  const aiSection = document.getElementById('rp-image-ai');
+  if (node.type === 'image') {
+    aiSection.classList.add('visible');
+    // Reset progress UI
+    document.getElementById('rp-ai-progress').classList.remove('active');
+    document.getElementById('rp-ai-result').classList.remove('visible');
+    document.getElementById('rp-ai-parse').disabled = false;
+    document.getElementById('rp-ai-parse-replace').disabled = false;
+  } else {
+    aiSection.classList.remove('visible');
+  }
 }
 
 function fillMultiNodePanel() {
@@ -2855,6 +2924,239 @@ function applyColorScheme(scheme) {
 }
 
 // ============================================================
+// AI IMAGE ANALYSIS
+// ============================================================
+const AI_ANALYSIS_PROMPT = `You are a knowledge graph / mind map analyzer with expert vision.
+Carefully analyze this image which shows a knowledge graph, mind map, concept map, or diagram.
+Extract EVERY visible node (any shape containing text) and EVERY connection (line, arrow, curve) between them.
+
+Return ONLY a single valid JSON object — no markdown fences, no explanation, nothing else:
+{
+  "nodes": [
+    {
+      "id": "n1",
+      "label": "Exact text from the node",
+      "x": 600,
+      "y": 300,
+      "r": 50,
+      "shape": "circle",
+      "fill": "#4A90D9",
+      "stroke": "#2C6FAC",
+      "strokeWidth": 2,
+      "fontSize": 14,
+      "fontFamily": "Microsoft YaHei",
+      "fontColor": "#FFFFFF",
+      "bold": false,
+      "italic": false,
+      "opacity": 1
+    }
+  ],
+  "edges": [
+    {
+      "id": "e1",
+      "source": "n1",
+      "target": "n2",
+      "color": "#999999",
+      "width": 1.5,
+      "arrowMode": "single",
+      "lineStyle": "solid",
+      "curvature": 0,
+      "label": ""
+    }
+  ]
+}
+
+Strict rules:
+1. Coordinate space: x from 0 to 1400, y from 0 to 900 — map positions proportionally from the image layout.
+2. Node radius r: reflect the visual size of the node (range 20–80).
+3. arrowMode: "none" (no arrowhead), "single" (arrow at target →), "double" (arrows both ways ↔).
+4. lineStyle: "solid", "dashed", or "dotted" — match what is visible in the image.
+5. Match fill/stroke colors from the image as closely as possible using hex codes.
+6. Extract the EXACT text from each node (preserve line breaks as \\n if needed).
+7. Every node id must be unique starting with "n" (n1, n2 …). Every edge id starts with "e".
+8. Edge source and target MUST reference valid node ids.
+9. If a label appears on a line/arrow, put it in the edge "label" field.
+10. Return ONLY the JSON — absolutely nothing else.`;
+
+function resizeImageForApi(src, maxW=1600, maxH=1200) {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      let w = img.width, h = img.height;
+      if (w > maxW || h > maxH) {
+        const s = Math.min(maxW / w, maxH / h);
+        w = Math.round(w * s); h = Math.round(h * s);
+      }
+      const c = document.createElement('canvas');
+      c.width = w; c.height = h;
+      c.getContext('2d').drawImage(img, 0, 0, w, h);
+      resolve(c.toDataURL('image/jpeg', 0.88));
+    };
+    img.src = src;
+  });
+}
+
+async function analyzeImageWithClaude(node, replaceOriginal) {
+  const apiKey = localStorage.getItem('claude_api_key');
+  if (!apiKey) {
+    showApikeyModal();
+    showToast('请先设置 Claude API Key', 'warning', 2500);
+    return;
+  }
+
+  const btn  = document.getElementById('rp-ai-parse');
+  const btn2 = document.getElementById('rp-ai-parse-replace');
+  const prog = document.getElementById('rp-ai-progress');
+  const res  = document.getElementById('rp-ai-result');
+  [btn, btn2].forEach(b => { b.disabled = true; });
+  prog.textContent = '⏳ 正在压缩图片...';
+  prog.classList.add('active');
+  res.classList.remove('visible');
+
+  try {
+    prog.textContent = '⏳ 发送给 Claude Vision 分析中，请稍候...';
+    const resized   = await resizeImageForApi(node.src);
+    const mediaType = resized.match(/data:([^;]+)/)?.[1] || 'image/jpeg';
+    const b64       = resized.replace(/^data:[^;]+;base64,/, '');
+
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true'
+      },
+      body: JSON.stringify({
+        model: 'claude-opus-4-6',
+        max_tokens: 8192,
+        messages: [{
+          role: 'user',
+          content: [
+            { type: 'image', source: { type: 'base64', media_type: mediaType, data: b64 } },
+            { type: 'text', text: AI_ANALYSIS_PROMPT }
+          ]
+        }]
+      })
+    });
+
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      throw new Error(err.error?.message || `API 错误 HTTP ${response.status}`);
+    }
+
+    prog.textContent = '⏳ 解析 AI 返回数据...';
+    const data = await response.json();
+    const text = data.content?.[0]?.text || '';
+
+    // Extract JSON robustly
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) throw new Error('AI 未返回有效 JSON');
+    const parsed = JSON.parse(jsonMatch[0]);
+    if (!Array.isArray(parsed.nodes)) throw new Error('返回数据格式不正确');
+
+    // Offset to place near image node center
+    const cx = node.x, cy = node.y;
+    parsed.nodes.forEach(n => {
+      n.x = (parseFloat(n.x) || 400) - 700 + cx;
+      n.y = (parseFloat(n.y) || 400) - 450 + cy;
+      // Ensure required fields
+      if (!n.fontFamily) n.fontFamily = 'Microsoft YaHei';
+      if (!n.fontColor)  n.fontColor  = '#FFFFFF';
+      if (n.opacity === undefined) n.opacity = 1;
+    });
+    (parsed.edges || []).forEach(e => {
+      if (!e.lineStyle) e.lineStyle = 'solid';
+      if (!e.arrowMode) e.arrowMode = 'single';
+    });
+
+    // Re-assign IDs to avoid collision with existing nodes/edges
+    const idMapN = {}, idMapE = {};
+    parsed.nodes.forEach(n => {
+      const newId = genId('n');
+      idMapN[n.id] = newId;
+      n.id = newId;
+    });
+    (parsed.edges || []).forEach(e => {
+      const newId = genId('e');
+      idMapE[e.id] = newId;
+      e.id   = newId;
+      e.source = idMapN[e.source] || e.source;
+      e.target = idMapN[e.target] || e.target;
+    });
+
+    // Merge into canvas
+    state.nodes = state.nodes.concat(parsed.nodes);
+    state.edges = state.edges.concat(parsed.edges || []);
+
+    if (replaceOriginal) {
+      state.nodes = state.nodes.filter(n => n.id !== node.id);
+      state.edges = state.edges.filter(e => e.source !== node.id && e.target !== node.id);
+    }
+
+    const nc = parsed.nodes.length, ec = (parsed.edges || []).length;
+    saveHistory('AI解析图片');
+    render(); updateLayersPanel(); updateRightPanel();
+    prog.classList.remove('active');
+    res.textContent = `✅ 已识别 ${nc} 个节点，${ec} 条连线`;
+    res.classList.add('visible');
+    showToast(`AI解析完成：${nc} 个节点，${ec} 条连线`, 'success', 3000);
+
+  } catch (err) {
+    prog.classList.remove('active');
+    showToast('解析失败: ' + err.message, 'error', 5000);
+    console.error('AI parse error', err);
+  } finally {
+    [btn, btn2].forEach(b => { b.disabled = false; });
+  }
+}
+
+function showApikeyModal() {
+  const overlay = document.getElementById('apikey-overlay');
+  overlay.classList.add('open');
+  const stored = localStorage.getItem('claude_api_key') || '';
+  document.getElementById('apikey-input').value = stored;
+  document.getElementById('apikey-input').focus();
+}
+
+function setupApikeyModal() {
+  document.getElementById('btn-apikey').addEventListener('click', showApikeyModal);
+  document.getElementById('apikey-cancel').addEventListener('click', () => {
+    document.getElementById('apikey-overlay').classList.remove('open');
+  });
+  document.getElementById('apikey-save').addEventListener('click', () => {
+    const val = document.getElementById('apikey-input').value.trim();
+    if (val) {
+      localStorage.setItem('claude_api_key', val);
+      showToast('API Key 已保存', 'success', 1500);
+    } else {
+      localStorage.removeItem('claude_api_key');
+      showToast('API Key 已清除', 'info', 1500);
+    }
+    document.getElementById('apikey-overlay').classList.remove('open');
+  });
+  document.getElementById('apikey-overlay').addEventListener('click', function(e) {
+    if (e.target === this) this.classList.remove('open');
+  });
+  // Also handle Enter key
+  document.getElementById('apikey-input').addEventListener('keydown', e => {
+    if (e.key === 'Enter') document.getElementById('apikey-save').click();
+  });
+
+  // AI parse buttons in right panel
+  document.getElementById('rp-ai-parse').addEventListener('click', () => {
+    const nodeId = [...state.selectedNodes][0];
+    const node   = getNodeById(nodeId);
+    if (node) analyzeImageWithClaude(node, false);
+  });
+  document.getElementById('rp-ai-parse-replace').addEventListener('click', () => {
+    const nodeId = [...state.selectedNodes][0];
+    const node   = getNodeById(nodeId);
+    if (node) analyzeImageWithClaude(node, true);
+  });
+}
+
+// ============================================================
 // INITIALIZATION
 // ============================================================
 function init() {
@@ -2890,6 +3192,7 @@ function init() {
 
   // Setup export modal
   setupExportModal();
+  setupApikeyModal();
 
   // Add left panel toggle button to DOM
   const toggleBtn = document.createElement('button');
