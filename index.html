@@ -209,6 +209,37 @@ body.left-collapsed #left-toggle{left:0}
 .apikey-modal .hint{font-size:11px;color:var(--text-dim);margin-bottom:14px;line-height:1.5}
 .apikey-modal .hint a{color:var(--accent)}
 .apikey-modal-btns{display:flex;gap:8px;justify-content:flex-end}
+/* Claude Pro Workflow Modal */
+#cpro-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.78);z-index:1400;display:none;align-items:center;justify-content:center}
+#cpro-overlay.open{display:flex}
+.cpro-modal{background:var(--panel-bg);border:1px solid var(--border);border-radius:10px;padding:0;width:520px;max-height:90vh;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 12px 48px rgba(0,0,0,0.6)}
+.cpro-header{padding:16px 20px 12px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px}
+.cpro-header h3{font-size:15px;flex:1}
+.cpro-badge{background:linear-gradient(135deg,#667eea,#764ba2);color:white;font-size:10px;font-weight:bold;padding:2px 7px;border-radius:10px;letter-spacing:.5px}
+.cpro-body{padding:16px 20px;overflow-y:auto;flex:1}
+.cpro-step{display:flex;gap:12px;margin-bottom:18px}
+.cpro-num{width:24px;height:24px;border-radius:50%;background:var(--accent);color:white;font-size:12px;font-weight:bold;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:1px}
+.cpro-step-body{flex:1}
+.cpro-step-title{font-size:13px;font-weight:bold;margin-bottom:6px}
+.cpro-step-desc{font-size:12px;color:var(--text-dim);line-height:1.55;margin-bottom:8px}
+.cpro-prompt-box{background:rgba(0,0,0,0.3);border:1px solid var(--border);border-radius:5px;padding:10px;font-size:11px;font-family:monospace;color:#ccc;max-height:130px;overflow-y:auto;white-space:pre-wrap;word-break:break-all;cursor:text;margin-bottom:6px}
+.cpro-copy-btn{padding:5px 14px;background:var(--accent);border:none;border-radius:4px;color:white;font-size:12px;cursor:pointer;display:inline-flex;align-items:center;gap:5px;transition:opacity .2s}
+.cpro-copy-btn:hover{opacity:.85}
+.cpro-copy-btn.copied{background:var(--success)}
+.cpro-link{color:var(--accent);text-decoration:none;font-weight:bold}
+.cpro-link:hover{text-decoration:underline}
+.cpro-paste-area{width:100%;min-height:90px;background:rgba(0,0,0,0.3);border:1px solid var(--border);border-radius:5px;padding:10px;font-size:11px;font-family:monospace;color:var(--text);resize:vertical;box-sizing:border-box;margin-bottom:8px}
+.cpro-paste-area::placeholder{color:var(--text-dim)}
+.cpro-import-btn{width:100%;padding:10px;background:linear-gradient(135deg,#27ae60,#1abc9c);border:none;border-radius:6px;color:white;font-size:13px;font-weight:bold;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:7px;transition:opacity .2s}
+.cpro-import-btn:hover{opacity:.88}
+.cpro-footer{padding:10px 20px;border-top:1px solid var(--border);display:flex;justify-content:flex-end;gap:8px}
+/* Node Group */
+.rp-group-badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;background:rgba(74,144,217,0.2);color:var(--accent);margin-right:4px;margin-bottom:2px;cursor:pointer}
+.rp-group-badge:hover{background:rgba(74,144,217,0.4)}
+.layer-group-header{padding:4px 8px 2px;font-size:10px;font-weight:bold;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px;display:flex;align-items:center;justify-content:space-between;cursor:pointer;user-select:none}
+.layer-group-header:hover{color:var(--text)}
+.layer-group-header .select-all-grp{font-size:10px;color:var(--accent);padding:1px 5px;border:1px solid var(--accent);border-radius:3px;cursor:pointer}
+.layer-group-separator{height:1px;background:var(--border);margin:4px 0}
 </style>
 </head>
 <body>
@@ -266,7 +297,8 @@ body.left-collapsed #left-toggle{left:0}
   <div class="tb-sep"></div>
   <button class="tb-btn" id="btn-theme" title="切换主题"><i class="fa fa-moon"></i></button>
   <div class="tb-sep"></div>
-  <button class="tb-btn" id="btn-apikey" title="设置 Claude API Key（用于AI解析图片）" style="color:#a78bfa"><i class="fa fa-key"></i> API Key</button>
+  <button class="tb-btn" id="btn-cpro" title="使用 Claude Pro 解析图片为可编辑图谱" style="color:#a78bfa"><i class="fa fa-wand-magic-sparkles"></i> Claude Pro 解析</button>
+  <button class="tb-btn" id="btn-apikey" title="设置 Claude API Key（可选，用于自动AI解析）" style="color:#666;font-size:11px"><i class="fa fa-key"></i></button>
 </div>
 
 <!-- Main area -->
@@ -316,6 +348,10 @@ body.left-collapsed #left-toggle{left:0}
         <div class="rp-row">
           <div class="rp-label">标签</div>
           <textarea class="rp-input" id="rp-label" rows="2"></textarea>
+        </div>
+        <div class="rp-row">
+          <div class="rp-label">分组/层级</div>
+          <input type="text" class="rp-input" id="rp-group" placeholder="如：核心概念、第一层…">
         </div>
         <div class="rp-row">
           <div class="rp-label">字体</div>
@@ -405,11 +441,14 @@ body.left-collapsed #left-toggle{left:0}
         <p style="font-size:11px;color:var(--text-dim);margin-bottom:10px;line-height:1.5">
           将图片中的节点、连线、文字、箭头识别为可编辑的图谱元素。
         </p>
+        <button class="ai-parse-btn" id="rp-cpro-open" style="background:linear-gradient(135deg,#27ae60,#2980b9)">
+          <i class="fa fa-arrow-up-right-from-square"></i> Claude Pro 解析向导
+        </button>
         <button class="ai-parse-btn" id="rp-ai-parse">
-          <i class="fa fa-wand-magic-sparkles"></i> 开始 AI 解析
+          <i class="fa fa-wand-magic-sparkles"></i> API 自动解析（需设置Key）
         </button>
         <button class="ai-parse-btn secondary" id="rp-ai-parse-replace" title="解析后删除原图片节点">
-          <i class="fa fa-sync-alt"></i> 解析并替换图片
+          <i class="fa fa-sync-alt"></i> API 解析并替换图片
         </button>
         <div class="ai-progress" id="rp-ai-progress">⏳ 正在调用 Claude Vision 分析中...</div>
         <div class="ai-result-info" id="rp-ai-result"></div>
@@ -547,6 +586,58 @@ body.left-collapsed #left-toggle{left:0}
     <div class="modal-btns">
       <button class="modal-cancel" id="confirm-cancel">取消</button>
       <button class="modal-confirm" id="confirm-ok">确认</button>
+    </div>
+  </div>
+</div>
+
+<!-- Claude Pro Workflow Modal -->
+<div id="cpro-overlay">
+  <div class="cpro-modal">
+    <div class="cpro-header">
+      <h3><i class="fa fa-wand-magic-sparkles" style="color:#a78bfa"></i> Claude Pro 图谱解析向导</h3>
+      <span class="cpro-badge">免费 Pro 方案</span>
+    </div>
+    <div class="cpro-body">
+      <div class="cpro-step">
+        <div class="cpro-num">1</div>
+        <div class="cpro-step-body">
+          <div class="cpro-step-title">复制下方解析提示词</div>
+          <div class="cpro-step-desc">点击"复制提示词"按钮，将以下提示词复制到剪贴板。</div>
+          <div class="cpro-prompt-box" id="cpro-prompt-text"></div>
+          <button class="cpro-copy-btn" id="cpro-copy-prompt"><i class="fa fa-copy"></i> 复制提示词</button>
+        </div>
+      </div>
+      <div class="cpro-step">
+        <div class="cpro-num">2</div>
+        <div class="cpro-step-body">
+          <div class="cpro-step-title">在 Claude.ai 中解析</div>
+          <div class="cpro-step-desc">
+            前往 <a class="cpro-link" href="https://claude.ai" target="_blank">claude.ai</a>，新建对话，
+            <b>上传你的图片</b>，粘贴提示词后发送。<br>
+            Claude 会返回一段 <b>JSON 代码</b>，全选并复制全部内容（包括 { } 大括号）。
+          </div>
+        </div>
+      </div>
+      <div class="cpro-step">
+        <div class="cpro-num">3</div>
+        <div class="cpro-step-body">
+          <div class="cpro-step-title">粘贴 JSON，导入画布</div>
+          <div class="cpro-step-desc">将 Claude 返回的 JSON 粘贴到下方文本框，点击"导入图谱"。</div>
+          <textarea class="cpro-paste-area" id="cpro-paste" placeholder='粘贴 Claude 返回的 JSON 内容（格式：{"nodes":[...],"edges":[...]}）'></textarea>
+          <div style="display:flex;gap:8px;margin-bottom:4px">
+            <label style="font-size:12px;color:var(--text-dim);display:flex;align-items:center;gap:5px;cursor:pointer">
+              <input type="checkbox" id="cpro-keep-img" checked> 保留原图片节点
+            </label>
+          </div>
+          <button class="cpro-import-btn" id="cpro-import-btn">
+            <i class="fa fa-file-import"></i> 导入图谱到画布
+          </button>
+          <div style="font-size:11px;color:var(--text-dim);margin-top:8px" id="cpro-import-msg"></div>
+        </div>
+      </div>
+    </div>
+    <div class="cpro-footer">
+      <button class="modal-cancel" id="cpro-close">关闭</button>
     </div>
   </div>
 </div>
@@ -1746,7 +1837,7 @@ function startEdgeLabelEdit(edge, evt) {
 function addNode(x, y, label='新节点') {
   const id = genId('n');
   const node = {
-    id, label, x: x || 400, y: y || 300,
+    id, label, group: '', x: x || 400, y: y || 300,
     r: 35, shape: 'circle',
     fill: '#4A90D9', stroke: '#2C6FAC', strokeWidth: 2,
     fontSize: 14, fontFamily: 'Microsoft YaHei',
@@ -1917,6 +2008,7 @@ function updateRightPanel() {
 
 function fillNodePanel(node) {
   document.getElementById('rp-label').value = node.label || '';
+  document.getElementById('rp-group').value = node.group || '';
   document.getElementById('rp-font').value = node.fontFamily || 'Microsoft YaHei';
   document.getElementById('rp-fontsize').value = node.fontSize || 14;
   document.getElementById('rp-fontsize-val').textContent = node.fontSize || 14;
@@ -1977,6 +2069,16 @@ function setupRightPanelEvents() {
     updateLayersPanel();
   });
   document.getElementById('rp-label').addEventListener('change', () => saveHistory('修改标签'));
+
+  // Node group
+  document.getElementById('rp-group').addEventListener('input', function() {
+    if (state.selectedNodes.size !== 1) return;
+    const node = getNodeById([...state.selectedNodes][0]);
+    if (!node) return;
+    node.group = this.value;
+    updateLayersPanel();
+  });
+  document.getElementById('rp-group').addEventListener('change', () => saveHistory('修改分组'));
 
   // Font family
   document.getElementById('rp-font').addEventListener('change', function() {
@@ -2142,23 +2244,33 @@ function applyToSelected(fn) {
 function updateLayersPanel() {
   const container = document.getElementById('layers-content');
   container.innerHTML = '';
+
+  // Group nodes by their group field
+  const groups = {};
+  const ungrouped = [];
   state.nodes.forEach(node => {
+    const g = (node.group || '').trim();
+    if (g) {
+      if (!groups[g]) groups[g] = [];
+      groups[g].push(node);
+    } else {
+      ungrouped.push(node);
+    }
+  });
+
+  function makeNodeItem(node) {
     const div = document.createElement('div');
     div.className = 'layer-item' + (state.selectedNodes.has(node.id) ? ' selected' : '');
     div.innerHTML = `
-      <div style="width:10px;height:10px;border-radius:50%;background:${node.fill||'#4A90D9'};flex-shrink:0"></div>
+      <div style="width:10px;height:10px;border-radius:${node.type==='image'?'2px':'50%'};background:${node.fill||'#4A90D9'};flex-shrink:0"></div>
       <span class="layer-item-label" title="${node.label||''}">${node.label||'(无标签)'}</span>
-      <i class="fa fa-eye layer-item-icon" title="切换可见性"></i>
       <i class="fa fa-trash layer-item-icon" style="color:var(--danger)" title="删除"></i>
     `;
     div.querySelector('.layer-item-label').addEventListener('click', () => {
       state.selectedNodes.clear();
       state.selectedNodes.add(node.id);
       state.selectedEdge = null;
-      render();
-      updateRightPanel();
-      updateLayersPanel();
-      // Center view on node
+      render(); updateRightPanel(); updateLayersPanel();
       centerOnNode(node);
     });
     div.querySelector('.fa-trash').addEventListener('click', async (e) => {
@@ -2166,8 +2278,39 @@ function updateLayersPanel() {
       const ok = await showConfirm('删除节点', `确定删除"${node.label}"？`);
       if (ok) { deleteNode(node.id); saveHistory('删除节点'); render(); updateLayersPanel(); updateRightPanel(); }
     });
-    container.appendChild(div);
+    return div;
+  }
+
+  // Render grouped nodes first
+  Object.entries(groups).forEach(([groupName, nodes]) => {
+    const headerDiv = document.createElement('div');
+    headerDiv.className = 'layer-group-header';
+    headerDiv.innerHTML = `
+      <span><i class="fa fa-layer-group" style="font-size:10px;margin-right:4px"></i>${groupName} (${nodes.length})</span>
+      <span class="select-all-grp" title="全选该组">全选</span>
+    `;
+    headerDiv.querySelector('.select-all-grp').addEventListener('click', (e) => {
+      e.stopPropagation();
+      state.selectedNodes.clear();
+      nodes.forEach(n => state.selectedNodes.add(n.id));
+      state.selectedEdge = null;
+      render(); updateRightPanel(); updateLayersPanel();
+    });
+    container.appendChild(headerDiv);
+    nodes.forEach(node => container.appendChild(makeNodeItem(node)));
+    const sep = document.createElement('div');
+    sep.className = 'layer-group-separator';
+    container.appendChild(sep);
   });
+
+  // Ungrouped nodes
+  if (ungrouped.length > 0 && Object.keys(groups).length > 0) {
+    const hdr = document.createElement('div');
+    hdr.className = 'layer-group-header';
+    hdr.innerHTML = `<span>未分组 (${ungrouped.length})</span>`;
+    container.appendChild(hdr);
+  }
+  ungrouped.forEach(node => container.appendChild(makeNodeItem(node)));
 }
 
 function centerOnNode(node) {
@@ -2916,19 +3059,21 @@ function applyColorScheme(scheme) {
 // ============================================================
 // AI IMAGE ANALYSIS
 // ============================================================
-const AI_ANALYSIS_PROMPT = `You are a knowledge graph / mind map analyzer with expert vision.
-Carefully analyze this image which shows a knowledge graph, mind map, concept map, or diagram.
-Extract EVERY visible node (any shape containing text) and EVERY connection (line, arrow, curve) between them.
+const AI_ANALYSIS_PROMPT = `请仔细分析这张图片（知识图谱/思维导图/概念图）。
+提取图中所有节点（含文字的形状）和所有连线（箭头/连接线）。
+根据节点的视觉层级、颜色或位置，将节点分配到合适的分组（group字段）。
 
-Return ONLY a single valid JSON object — no markdown fences, no explanation, nothing else:
+只返回一个合法的JSON对象，不要任何解释、不要Markdown代码块、不要多余文字：
+
 {
   "nodes": [
     {
       "id": "n1",
-      "label": "Exact text from the node",
-      "x": 600,
-      "y": 300,
-      "r": 50,
+      "label": "节点上的完整文字",
+      "group": "核心概念",
+      "x": 700,
+      "y": 400,
+      "r": 55,
       "shape": "circle",
       "fill": "#4A90D9",
       "stroke": "#2C6FAC",
@@ -2956,17 +3101,18 @@ Return ONLY a single valid JSON object — no markdown fences, no explanation, n
   ]
 }
 
-Strict rules:
-1. Coordinate space: x from 0 to 1400, y from 0 to 900 — map positions proportionally from the image layout.
-2. Node radius r: reflect the visual size of the node (range 20–80).
-3. arrowMode: "none" (no arrowhead), "single" (arrow at target →), "double" (arrows both ways ↔).
-4. lineStyle: "solid", "dashed", or "dotted" — match what is visible in the image.
-5. Match fill/stroke colors from the image as closely as possible using hex codes.
-6. Extract the EXACT text from each node (preserve line breaks as \\n if needed).
-7. Every node id must be unique starting with "n" (n1, n2 …). Every edge id starts with "e".
-8. Edge source and target MUST reference valid node ids.
-9. If a label appears on a line/arrow, put it in the edge "label" field.
-10. Return ONLY the JSON — absolutely nothing else.`;
+严格规则：
+1. 坐标空间：x 范围 0-1400，y 范围 0-900，按图片中元素的相对位置映射。
+2. r（节点半径）反映节点的视觉大小，范围 20-80。
+3. group：根据节点的视觉层级/颜色/功能分组，如"核心概念""子概念""参考文献""工具方法"等。
+4. arrowMode：无箭头="none"，单向箭头="single"，双向箭头="double"。
+5. lineStyle：实线="solid"，虚线="dashed"，点线="dotted"。
+6. fill/stroke 颜色尽量匹配图片，使用十六进制色值。
+7. label 提取图片中节点的精确文字（换行用 \n）。
+8. 节点ID以n开头（n1,n2…），边ID以e开头（e1,e2…），ID唯一。
+9. 边的 source 和 target 必须引用存在的节点ID。
+10. 若连线上有文字，放入 edge 的 label 字段。
+11. 只返回JSON，绝对不要其他任何内容。`;
 
 function resizeImageForApi(src, maxW=1600, maxH=1200) {
   return new Promise((resolve) => {
@@ -3050,43 +3196,9 @@ async function analyzeImageWithClaude(node, replaceOriginal) {
     parsed.nodes.forEach(n => {
       n.x = (parseFloat(n.x) || 400) - 700 + cx;
       n.y = (parseFloat(n.y) || 400) - 450 + cy;
-      // Ensure required fields
-      if (!n.fontFamily) n.fontFamily = 'Microsoft YaHei';
-      if (!n.fontColor)  n.fontColor  = '#FFFFFF';
-      if (n.opacity === undefined) n.opacity = 1;
-    });
-    (parsed.edges || []).forEach(e => {
-      if (!e.lineStyle) e.lineStyle = 'solid';
-      if (!e.arrowMode) e.arrowMode = 'single';
     });
 
-    // Re-assign IDs to avoid collision with existing nodes/edges
-    const idMapN = {}, idMapE = {};
-    parsed.nodes.forEach(n => {
-      const newId = genId('n');
-      idMapN[n.id] = newId;
-      n.id = newId;
-    });
-    (parsed.edges || []).forEach(e => {
-      const newId = genId('e');
-      idMapE[e.id] = newId;
-      e.id   = newId;
-      e.source = idMapN[e.source] || e.source;
-      e.target = idMapN[e.target] || e.target;
-    });
-
-    // Merge into canvas
-    state.nodes = state.nodes.concat(parsed.nodes);
-    state.edges = state.edges.concat(parsed.edges || []);
-
-    if (replaceOriginal) {
-      state.nodes = state.nodes.filter(n => n.id !== node.id);
-      state.edges = state.edges.filter(e => e.source !== node.id && e.target !== node.id);
-    }
-
-    const nc = parsed.nodes.length, ec = (parsed.edges || []).length;
-    saveHistory('AI解析图片');
-    render(); updateLayersPanel(); updateRightPanel();
+    const { nc, ec } = importParsedGraphData(parsed, !replaceOriginal, node.id);
     prog.classList.remove('active');
     res.textContent = `✅ 已识别 ${nc} 个节点，${ec} 条连线`;
     res.classList.add('visible');
@@ -3099,6 +3211,104 @@ async function analyzeImageWithClaude(node, replaceOriginal) {
   } finally {
     [btn, btn2].forEach(b => { b.disabled = false; });
   }
+}
+
+// Import parsed JSON (shared by Claude Pro modal and JSON file import)
+function importParsedGraphData(parsed, keepImageNode, imageNodeId) {
+  if (!Array.isArray(parsed.nodes)) throw new Error('缺少 nodes 数组');
+  // Re-assign IDs to avoid collision
+  const idMapN = {};
+  parsed.nodes.forEach(n => {
+    const newId = genId('n');
+    idMapN[n.id] = newId;
+    n.id = newId;
+    if (!n.fontFamily) n.fontFamily = 'Microsoft YaHei';
+    if (!n.fontColor)  n.fontColor  = '#FFFFFF';
+    if (n.opacity === undefined) n.opacity = 1;
+    if (!n.group) n.group = '';
+  });
+  (parsed.edges || []).forEach(e => {
+    e.id = genId('e');
+    e.source = idMapN[e.source] || e.source;
+    e.target = idMapN[e.target] || e.target;
+    if (!e.lineStyle) e.lineStyle = 'solid';
+    if (!e.arrowMode) e.arrowMode = 'single';
+  });
+  state.nodes = state.nodes.concat(parsed.nodes);
+  state.edges = state.edges.concat(parsed.edges || []);
+  if (!keepImageNode && imageNodeId) {
+    state.nodes = state.nodes.filter(n => n.id !== imageNodeId);
+    state.edges = state.edges.filter(e => e.source !== imageNodeId && e.target !== imageNodeId);
+  }
+  saveHistory('导入图谱');
+  render(); updateLayersPanel(); updateRightPanel();
+  return { nc: parsed.nodes.length, ec: (parsed.edges || []).length };
+}
+
+function setupCproModal() {
+  const overlay = document.getElementById('cpro-overlay');
+  const promptEl = document.getElementById('cpro-prompt-text');
+  promptEl.textContent = AI_ANALYSIS_PROMPT;
+
+  // Open from toolbar
+  document.getElementById('btn-cpro').addEventListener('click', () => {
+    overlay.classList.add('open');
+    document.getElementById('cpro-paste').value = '';
+    document.getElementById('cpro-import-msg').textContent = '';
+  });
+  // Open from right panel (image node)
+  document.getElementById('rp-cpro-open').addEventListener('click', () => {
+    overlay.classList.add('open');
+    document.getElementById('cpro-paste').value = '';
+    document.getElementById('cpro-import-msg').textContent = '';
+  });
+
+  // Close
+  document.getElementById('cpro-close').addEventListener('click', () => overlay.classList.remove('open'));
+  overlay.addEventListener('click', e => { if (e.target === overlay) overlay.classList.remove('open'); });
+
+  // Copy prompt
+  document.getElementById('cpro-copy-prompt').addEventListener('click', () => {
+    navigator.clipboard.writeText(AI_ANALYSIS_PROMPT).then(() => {
+      const btn = document.getElementById('cpro-copy-prompt');
+      btn.classList.add('copied');
+      btn.innerHTML = '<i class="fa fa-check"></i> 已复制！';
+      setTimeout(() => {
+        btn.classList.remove('copied');
+        btn.innerHTML = '<i class="fa fa-copy"></i> 复制提示词';
+      }, 2000);
+    }).catch(() => {
+      // Fallback: select text
+      const box = document.getElementById('cpro-prompt-text');
+      const sel = window.getSelection(); const range = document.createRange();
+      range.selectNodeContents(box); sel.removeAllRanges(); sel.addRange(range);
+      showToast('请手动 Ctrl+C 复制选中的文字', 'info', 3000);
+    });
+  });
+
+  // Import
+  document.getElementById('cpro-import-btn').addEventListener('click', () => {
+    const raw = document.getElementById('cpro-paste').value.trim();
+    const msgEl = document.getElementById('cpro-import-msg');
+    if (!raw) { msgEl.textContent = '⚠ 请先粘贴 Claude 返回的 JSON'; msgEl.style.color = 'var(--warning)'; return; }
+    try {
+      const jsonMatch = raw.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) throw new Error('未找到有效 JSON（需包含 { } ）');
+      const parsed = JSON.parse(jsonMatch[0]);
+      const keepImg = document.getElementById('cpro-keep-img').checked;
+      // Find current selected image node (if any)
+      const selNodeId = state.selectedNodes.size === 1 ? [...state.selectedNodes][0] : null;
+      const selNode = selNodeId ? getNodeById(selNodeId) : null;
+      const imgId = (selNode && selNode.type === 'image') ? selNode.id : null;
+      const { nc, ec } = importParsedGraphData(parsed, keepImg, imgId);
+      msgEl.style.color = 'var(--success)';
+      msgEl.textContent = `✅ 已导入 ${nc} 个节点，${ec} 条连线`;
+      showToast(`导入成功：${nc} 个节点，${ec} 条连线`, 'success', 3000);
+    } catch(e) {
+      msgEl.style.color = 'var(--danger)';
+      msgEl.textContent = '❌ 解析失败：' + e.message;
+    }
+  });
 }
 
 function showApikeyModal() {
@@ -3182,6 +3392,7 @@ function init() {
 
   // Setup export modal
   setupExportModal();
+  setupCproModal();
   setupApikeyModal();
 
   // Add left panel toggle button to DOM
