@@ -187,6 +187,18 @@ body.left-collapsed #left-toggle{left:0}
 
 /* Loading */
 #loading{position:fixed;inset:0;background:var(--bg);display:flex;align-items:center;justify-content:center;z-index:9999;font-size:18px;color:var(--accent)}
+/* Background Reference Image Control Bar */
+#bg-control{position:absolute;bottom:12px;left:50%;transform:translateX(-50%);background:var(--panel-bg);border:1px solid var(--border);border-radius:8px;padding:7px 14px;display:none;align-items:center;gap:12px;z-index:50;font-size:12px;box-shadow:0 4px 16px rgba(0,0,0,0.4);white-space:nowrap}
+#bg-control.active{display:flex}
+#bg-control label{color:var(--text-dim)}
+#bg-control input[type=range]{width:90px}
+.bg-ctrl-btn{height:26px;padding:0 10px;background:rgba(255,255,255,0.1);border:1px solid var(--border);border-radius:4px;color:var(--text);cursor:pointer;font-size:12px;display:flex;align-items:center;gap:5px}
+.bg-ctrl-btn:hover{background:rgba(255,255,255,0.2)}
+.bg-ctrl-btn.on{background:var(--accent);border-color:var(--accent);color:#fff}
+.bg-ctrl-btn.danger{border-color:var(--danger);color:var(--danger)}
+.bg-ctrl-btn.danger:hover{background:var(--danger);color:#fff}
+#trace-indicator{position:absolute;top:8px;left:50%;transform:translateX(-50%);background:rgba(74,144,217,0.92);color:#fff;padding:5px 16px;border-radius:20px;font-size:12px;pointer-events:none;z-index:50;display:none}
+#trace-indicator.active{display:block}
 /* AI Image Analysis */
 #rp-image-ai{display:none;padding:12px;border-top:1px solid var(--border)}
 #rp-image-ai.visible{display:block}
@@ -264,7 +276,8 @@ body.left-collapsed #left-toggle{left:0}
   </select>
   <div class="tb-sep"></div>
   <button class="tb-btn" id="btn-import" title="导入JSON"><i class="fa fa-upload"></i> 导入</button>
-  <button class="tb-btn" id="btn-import-img" title="上传图片到画布"><i class="fa fa-file-image"></i> 上传图片</button>
+  <button class="tb-btn" id="btn-import-img" title="上传图片作为普通节点"><i class="fa fa-file-image"></i> 上传图片</button>
+  <button class="tb-btn" id="btn-set-bg" title="导入图片作为背景参考图，在上面描摹节点和连线" style="color:#f39c12"><i class="fa fa-map"></i> 参考图</button>
   <button class="tb-btn" id="btn-export-json" title="导出JSON"><i class="fa fa-download"></i> 导出JSON</button>
   <button class="tb-btn" id="btn-export-img" title="导出图片"><i class="fa fa-image"></i> 导出图片</button>
   <div class="tb-sep"></div>
@@ -332,10 +345,22 @@ body.left-collapsed #left-toggle{left:0}
       </defs>
       <rect id="bg-rect" width="100%" height="100%" fill="url(#dot-grid)"/>
       <g id="graph-layer">
+        <!-- Background reference image sits behind all nodes/edges -->
+        <image id="bg-image" style="display:none" pointer-events="none" preserveAspectRatio="xMidYMid meet"/>
         <g id="edges-layer"></g>
         <g id="nodes-layer"></g>
       </g>
     </svg>
+    <div id="trace-indicator"><i class="fa fa-crosshairs"></i> 描摹模式：单击空白处放置节点 &nbsp;|&nbsp; Esc 退出</div>
+    <div id="bg-control">
+      <label>参考图:</label>
+      <button class="bg-ctrl-btn on" id="bg-toggle-vis"><i class="fa fa-eye"></i> 显示</button>
+      <label>透明度</label>
+      <input type="range" id="bg-opacity" min="5" max="100" value="40" title="参考图透明度">
+      <span id="bg-opacity-val" style="min-width:28px">40%</span>
+      <button class="bg-ctrl-btn" id="bg-toggle-trace" title="开启后单击画布即可快速放置节点"><i class="fa fa-crosshairs"></i> 描摹</button>
+      <button class="bg-ctrl-btn danger" id="bg-clear"><i class="fa fa-times"></i> 移除参考图</button>
+    </div>
     <div id="rubber-band"></div>
     <div id="tooltip"></div>
   </div>
@@ -663,6 +688,7 @@ body.left-collapsed #left-toggle{left:0}
 
 <input type="file" id="file-input" accept=".json,.txt,application/json,text/plain" style="display:none">
 <input type="file" id="img-input" accept="image/*" style="display:none">
+<input type="file" id="bg-img-input" accept="image/*" style="display:none">
 <script>
 // ============================================================
 // STATE MANAGEMENT
@@ -685,7 +711,9 @@ const state = {
   nodeIdCounter: 100,
   edgeIdCounter: 100,
   connectMode: false,
-  defaultEdgeStyle: { color: '#999999', width: 1.5, arrowMode: 'single', lineStyle: 'solid' }
+  defaultEdgeStyle: { color: '#999999', width: 1.5, arrowMode: 'single', lineStyle: 'solid' },
+  bgImage: { src: null, opacity: 0.4, visible: true, w: 0, h: 0 },
+  traceMode: false
 };
 
 // ============================================================
@@ -1115,6 +1143,103 @@ function updateDotGrid() {
 }
 
 // ============================================================
+// BACKGROUND REFERENCE IMAGE
+// ============================================================
+function renderBgImage() {
+  const el = document.getElementById('bg-image');
+  const bg = state.bgImage;
+  if (!bg.src) { el.style.display = 'none'; return; }
+  el.style.display = bg.visible ? '' : 'none';
+  el.setAttribute('href', bg.src);
+  el.setAttribute('x', 0);
+  el.setAttribute('y', 0);
+  el.setAttribute('width', bg.w);
+  el.setAttribute('height', bg.h);
+  el.setAttribute('opacity', bg.opacity);
+}
+
+function setBgImage(src, naturalW, naturalH) {
+  state.bgImage.src = src;
+  state.bgImage.w   = naturalW;
+  state.bgImage.h   = naturalH;
+  state.bgImage.visible = true;
+  renderBgImage();
+  document.getElementById('bg-control').classList.add('active');
+  document.getElementById('bg-toggle-vis').classList.add('on');
+  document.getElementById('bg-toggle-vis').innerHTML = '<i class="fa fa-eye"></i> 显示';
+  // Fit bg image in view
+  updateSvgSize();
+  const scaleX = svgWidth  / naturalW;
+  const scaleY = svgHeight / naturalH;
+  const k = Math.min(scaleX, scaleY) * 0.9;
+  state.transform = { x: (svgWidth - naturalW*k)/2, y: (svgHeight - naturalH*k)/2, k };
+  applyTransform();
+  showToast('参考图已设置。调整透明度后开启"描摹"模式，单击放置节点', 'info', 4000);
+}
+
+function clearBgImage() {
+  state.bgImage = { src: null, opacity: 0.4, visible: true, w: 0, h: 0 };
+  state.traceMode = false;
+  renderBgImage();
+  document.getElementById('bg-control').classList.remove('active');
+  document.getElementById('trace-indicator').classList.remove('active');
+  document.getElementById('main-svg').classList.remove('trace-mode');
+}
+
+function setupBgImageControl() {
+  // Toolbar button → file picker
+  document.getElementById('btn-set-bg').addEventListener('click', () => {
+    document.getElementById('bg-img-input').click();
+  });
+  document.getElementById('bg-img-input').addEventListener('change', function() {
+    const file = this.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const img = new Image();
+      img.onload = () => setBgImage(ev.target.result, img.naturalWidth, img.naturalHeight);
+      img.src = ev.target.result;
+    };
+    reader.readAsDataURL(file);
+    this.value = '';
+  });
+
+  // Visibility toggle
+  document.getElementById('bg-toggle-vis').addEventListener('click', function() {
+    state.bgImage.visible = !state.bgImage.visible;
+    this.classList.toggle('on', state.bgImage.visible);
+    this.innerHTML = state.bgImage.visible
+      ? '<i class="fa fa-eye"></i> 显示'
+      : '<i class="fa fa-eye-slash"></i> 隐藏';
+    renderBgImage();
+  });
+
+  // Opacity slider
+  document.getElementById('bg-opacity').addEventListener('input', function() {
+    state.bgImage.opacity = this.value / 100;
+    document.getElementById('bg-opacity-val').textContent = this.value + '%';
+    renderBgImage();
+  });
+
+  // Trace mode toggle
+  document.getElementById('bg-toggle-trace').addEventListener('click', function() {
+    state.traceMode = !state.traceMode;
+    this.classList.toggle('on', state.traceMode);
+    this.innerHTML = state.traceMode
+      ? '<i class="fa fa-crosshairs"></i> 描摹中'
+      : '<i class="fa fa-crosshairs"></i> 描摹';
+    document.getElementById('trace-indicator').classList.toggle('active', state.traceMode);
+    if (state.traceMode) showToast('描摹模式：单击空白处放置节点，双击节点编辑文字', 'info', 3000);
+  });
+
+  // Clear
+  document.getElementById('bg-clear').addEventListener('click', async () => {
+    const ok = await showConfirm('移除参考图', '确定移除背景参考图？（不影响已画的节点）');
+    if (ok) clearBgImage();
+  });
+}
+
+// ============================================================
 // NODE SHAPE PATHS
 // ============================================================
 function getNodeShapePath(node, forExport=false) {
@@ -1277,6 +1402,7 @@ function ensureMarker(color) {
 // RENDER FUNCTIONS
 // ============================================================
 function render() {
+  renderBgImage();
   renderEdges();
   renderNodes();
 }
@@ -1747,6 +1873,18 @@ function setupCanvasEvents() {
   // Mouse events on SVG background
   svgEl.addEventListener('mousedown', (e) => {
     if (e.target.closest('.node-group') || e.target.closest('.edge-group')) return;
+
+    // Trace mode: left-click on empty canvas → place a node
+    if (e.button === 0 && state.traceMode && !state.spaceDown && !state.connectMode) {
+      const pt = screenToGraph(e.clientX, e.clientY);
+      const node = addNode(pt.x, pt.y, '');
+      // Open label editor immediately
+      const g = nodesLayer.select(`[data-id="${node.id}"]`) || nodesLayer.selectAll('.node-group').filter(d => d.id === node.id);
+      // defer so render() has run
+      setTimeout(() => { startNodeEditById(node.id); }, 60);
+      return;
+    }
+
     if (e.button === 1 || (e.button === 0 && state.spaceDown)) {
       // Pan
       state.isPanning = true;
@@ -1920,6 +2058,16 @@ function hideContextMenu() {
 // ============================================================
 let editingNode = null;
 let editFO = null;
+
+function startNodeEditById(nodeId) {
+  const node = getNodeById(nodeId);
+  if (!node) return;
+  let gEl = null;
+  nodesLayer.selectAll('.node-group').each(function(d) {
+    if (d.id === nodeId) gEl = d3.select(this);
+  });
+  if (gEl) startNodeEdit(node, gEl);
+}
 
 function startNodeEdit(node, g) {
   if (editingNode) finishNodeEdit();
@@ -2808,6 +2956,13 @@ function setupKeyboard() {
       else if (state.selectedEdge) deleteEdge(state.selectedEdge);
     }
     if (e.key === 'Escape') {
+      if (state.traceMode) {
+        state.traceMode = false;
+        document.getElementById('bg-toggle-trace').classList.remove('on');
+        document.getElementById('bg-toggle-trace').innerHTML = '<i class="fa fa-crosshairs"></i> 描摹';
+        document.getElementById('trace-indicator').classList.remove('active');
+        showToast('已退出描摹模式', 'info', 1200);
+      }
       if (state.connectMode) {
         state.connectMode = false;
         document.getElementById('btn-connect-mode').classList.remove('active');
@@ -3589,6 +3744,7 @@ function init() {
   setupExportModal();
   setupCproModal();
   setupApikeyModal();
+  setupBgImageControl();
 
   // Add left panel toggle button to DOM
   const toggleBtn = document.createElement('button');
