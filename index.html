@@ -1,0 +1,2788 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>知识图谱编辑器</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+<script src="https://d3js.org/d3.v7.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Microsoft YaHei',sans-serif;background:#1a1a2e;color:#e0e0e0;overflow:hidden;height:100vh;display:flex;flex-direction:column}
+:root{--bg:#1a1a2e;--panel-bg:#16213e;--toolbar-bg:#0f3460;--accent:#4A90D9;--text:#e0e0e0;--text-dim:#999;--border:#2a4a7f;--hover:#1e4080;--danger:#e74c3c;--success:#2ecc71;--warning:#f39c12}
+body.light{--bg:#f5f5f5;--panel-bg:#ffffff;--toolbar-bg:#2c3e50;--accent:#2980b9;--text:#333;--text-dim:#666;--border:#ddd;--hover:#e8e8e8;--danger:#e74c3c;--success:#27ae60;--warning:#e67e22}
+
+/* Toolbar */
+#toolbar{height:48px;background:var(--toolbar-bg);display:flex;align-items:center;padding:0 8px;gap:4px;flex-shrink:0;border-bottom:1px solid var(--border);z-index:100;position:relative}
+.tb-btn{height:32px;padding:0 10px;background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.2);border-radius:4px;color:var(--text);cursor:pointer;font-size:13px;display:flex;align-items:center;gap:5px;transition:all 0.15s;white-space:nowrap}
+.tb-btn:hover{background:rgba(255,255,255,0.2)}
+.tb-btn:active{transform:scale(0.96)}
+.tb-btn.active{background:var(--accent);border-color:var(--accent)}
+.tb-sep{width:1px;height:28px;background:rgba(255,255,255,0.2);margin:0 4px}
+.tb-select{height:32px;padding:0 8px;background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.2);border-radius:4px;color:var(--text);font-size:13px;cursor:pointer}
+.tb-select option{background:#1a1a2e;color:#e0e0e0}
+#zoom-display{height:32px;padding:0 8px;background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.2);border-radius:4px;color:var(--text);font-size:13px;cursor:pointer;min-width:60px;text-align:center;display:flex;align-items:center;justify-content:center}
+#zoom-display:hover{background:rgba(255,255,255,0.2)}
+.tb-spacer{flex:1}
+
+/* Main layout */
+#main-area{flex:1;display:flex;overflow:hidden;position:relative}
+
+/* Left panel */
+#left-panel{width:220px;background:var(--panel-bg);border-right:1px solid var(--border);display:flex;flex-direction:column;transition:width 0.2s;flex-shrink:0;overflow:hidden}
+#left-panel.collapsed{width:0}
+.panel-tabs{display:flex;border-bottom:1px solid var(--border)}
+.panel-tab{flex:1;padding:8px;text-align:center;cursor:pointer;font-size:13px;color:var(--text-dim);border-bottom:2px solid transparent;transition:all 0.15s}
+.panel-tab.active{color:var(--accent);border-bottom-color:var(--accent)}
+.panel-content{flex:1;overflow-y:auto;padding:4px 0}
+.panel-content::-webkit-scrollbar{width:4px}
+.panel-content::-webkit-scrollbar-track{background:transparent}
+.panel-content::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px}
+
+/* Layer items */
+.layer-item{display:flex;align-items:center;padding:5px 8px;cursor:pointer;font-size:12px;gap:6px;transition:background 0.1s}
+.layer-item:hover{background:var(--hover)}
+.layer-item.selected{background:rgba(74,144,217,0.2)}
+.layer-item-label{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.layer-item-icon{color:var(--text-dim);font-size:11px;cursor:pointer;padding:2px;border-radius:2px}
+.layer-item-icon:hover{color:var(--text)}
+
+/* History items */
+.history-item{padding:5px 10px;cursor:pointer;font-size:12px;color:var(--text-dim);border-left:2px solid transparent;transition:all 0.1s}
+.history-item:hover{background:var(--hover);color:var(--text)}
+.history-item.current{color:var(--text);border-left-color:var(--accent);background:rgba(74,144,217,0.1)}
+
+/* SVG Canvas */
+#canvas-container{flex:1;position:relative;overflow:hidden;background:var(--bg)}
+#main-svg{width:100%;height:100%;cursor:default}
+#main-svg.panning{cursor:grabbing}
+#main-svg.connecting{cursor:crosshair}
+
+/* Right panel */
+#right-panel{width:260px;background:var(--panel-bg);border-left:1px solid var(--border);overflow-y:auto;flex-shrink:0;transition:width 0.2s}
+#right-panel.hidden{width:0;overflow:hidden}
+#right-panel::-webkit-scrollbar{width:4px}
+#right-panel::-webkit-scrollbar-track{background:transparent}
+#right-panel::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px}
+.rp-section{padding:12px}
+.rp-title{font-size:12px;font-weight:bold;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;padding-bottom:6px;border-bottom:1px solid var(--border)}
+.rp-row{margin-bottom:10px}
+.rp-label{font-size:12px;color:var(--text-dim);margin-bottom:4px}
+.rp-input{width:100%;padding:5px 8px;background:rgba(255,255,255,0.1);border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:13px}
+.rp-input:focus{outline:none;border-color:var(--accent)}
+textarea.rp-input{resize:vertical;min-height:60px;font-family:inherit}
+.rp-select{width:100%;padding:5px 8px;background:var(--panel-bg);border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:13px}
+.rp-select option{background:var(--panel-bg)}
+.slider-row{display:flex;align-items:center;gap:8px}
+.slider-row input[type=range]{flex:1}
+.slider-val{min-width:30px;text-align:right;font-size:12px;color:var(--text-dim)}
+.color-row{display:flex;align-items:center;gap:8px}
+input[type=color]{width:32px;height:28px;border:1px solid var(--border);border-radius:4px;cursor:pointer;padding:2px;background:transparent}
+.toggle-row{display:flex;gap:8px}
+.toggle-btn{flex:1;padding:5px;background:rgba(255,255,255,0.1);border:1px solid var(--border);border-radius:4px;color:var(--text-dim);cursor:pointer;font-size:13px;text-align:center;transition:all 0.15s}
+.toggle-btn.active{background:var(--accent);border-color:var(--accent);color:white}
+.shape-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:4px}
+.shape-btn{padding:6px 4px;background:rgba(255,255,255,0.1);border:1px solid var(--border);border-radius:4px;color:var(--text-dim);cursor:pointer;font-size:11px;text-align:center;transition:all 0.15s}
+.shape-btn.active{background:var(--accent);border-color:var(--accent);color:white}
+.btn-danger{width:100%;padding:8px;background:rgba(231,76,60,0.2);border:1px solid var(--danger);border-radius:4px;color:var(--danger);cursor:pointer;font-size:13px;transition:all 0.15s}
+.btn-danger:hover{background:var(--danger);color:white}
+.btn-primary{width:100%;padding:8px;background:rgba(74,144,217,0.2);border:1px solid var(--accent);border-radius:4px;color:var(--accent);cursor:pointer;font-size:13px;transition:all 0.15s;margin-bottom:6px}
+.btn-primary:hover{background:var(--accent);color:white}
+
+/* Context menu */
+#context-menu{position:fixed;background:var(--panel-bg);border:1px solid var(--border);border-radius:6px;box-shadow:0 4px 20px rgba(0,0,0,0.5);z-index:1000;min-width:160px;display:none}
+.ctx-item{padding:8px 16px;cursor:pointer;font-size:13px;display:flex;align-items:center;gap:8px;transition:background 0.1s}
+.ctx-item:hover{background:var(--hover)}
+.ctx-item.danger{color:var(--danger)}
+.ctx-sep{height:1px;background:var(--border);margin:4px 0}
+
+/* NL Command bar */
+#nl-bar{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);z-index:200;display:flex;flex-direction:column;align-items:center;gap:6px}
+#nl-toggle{padding:6px 16px;background:var(--toolbar-bg);border:1px solid var(--border);border-radius:20px;color:var(--text-dim);cursor:pointer;font-size:12px;display:flex;align-items:center;gap:6px;transition:all 0.15s}
+#nl-toggle:hover{color:var(--text);border-color:var(--accent)}
+#nl-input-area{display:none;width:480px;background:var(--panel-bg);border:1px solid var(--border);border-radius:8px;padding:10px;box-shadow:0 4px 20px rgba(0,0,0,0.5)}
+#nl-input-area.open{display:block}
+#nl-input{width:100%;padding:8px 12px;background:rgba(255,255,255,0.1);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:14px;font-family:inherit}
+#nl-input:focus{outline:none;border-color:var(--accent)}
+.nl-hint{font-size:11px;color:var(--text-dim);margin-top:6px}
+#nl-result{margin-top:6px;font-size:12px;padding:4px 8px;border-radius:4px;display:none}
+#nl-result.ok{background:rgba(46,204,113,0.2);color:var(--success)}
+#nl-result.warn{background:rgba(243,156,18,0.2);color:var(--warning)}
+#nl-result.error{background:rgba(231,76,60,0.2);color:var(--danger)}
+
+/* Toast */
+#toast-container{position:fixed;top:60px;right:16px;z-index:2000;display:flex;flex-direction:column;gap:8px}
+.toast{padding:10px 16px;border-radius:6px;font-size:13px;animation:slideIn 0.2s ease;max-width:300px}
+.toast.info{background:rgba(74,144,217,0.9);color:white}
+.toast.success{background:rgba(46,204,113,0.9);color:white}
+.toast.warning{background:rgba(243,156,18,0.9);color:#333}
+.toast.error{background:rgba(231,76,60,0.9);color:white}
+@keyframes slideIn{from{transform:translateX(100%);opacity:0}to{transform:translateX(0);opacity:1}}
+
+/* Shortcut hint */
+#shortcut-hint{position:fixed;bottom:80px;right:16px;background:var(--panel-bg);border:1px solid var(--border);border-radius:8px;padding:16px;z-index:500;max-width:260px;font-size:12px}
+#shortcut-hint h4{margin-bottom:10px;font-size:14px;color:var(--accent)}
+.hint-row{display:flex;justify-content:space-between;margin-bottom:5px;gap:12px}
+.hint-key{font-family:monospace;background:rgba(255,255,255,0.1);padding:2px 6px;border-radius:3px;font-size:11px;color:var(--text)}
+.hint-desc{color:var(--text-dim)}
+#close-hint{margin-top:10px;width:100%;padding:5px;background:rgba(255,255,255,0.1);border:1px solid var(--border);border-radius:4px;color:var(--text-dim);cursor:pointer;font-size:12px}
+#close-hint:hover{color:var(--text)}
+
+/* Selection rubber band */
+#rubber-band{position:absolute;border:1px dashed var(--accent);background:rgba(74,144,217,0.1);pointer-events:none;display:none}
+
+/* Export modal */
+#modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:1000;display:none;align-items:center;justify-content:center}
+#modal-overlay.open{display:flex}
+.modal{background:var(--panel-bg);border:1px solid var(--border);border-radius:10px;padding:20px;min-width:320px;max-width:500px}
+.modal h3{margin-bottom:16px;font-size:16px;color:var(--accent)}
+.modal-row{margin-bottom:12px}
+.modal-row label{display:block;font-size:12px;color:var(--text-dim);margin-bottom:6px}
+.modal-btns{display:flex;gap:8px;margin-top:16px}
+.modal-btns button{flex:1;padding:8px;border-radius:4px;cursor:pointer;font-size:13px;border:1px solid var(--border)}
+.modal-cancel{background:rgba(255,255,255,0.1);color:var(--text)}
+.modal-confirm{background:var(--accent);border-color:var(--accent);color:white}
+.modal-confirm:hover{opacity:0.9}
+
+/* Radio/checkbox group */
+.radio-group{display:flex;gap:8px;flex-wrap:wrap}
+.radio-label{display:flex;align-items:center;gap:4px;font-size:12px;cursor:pointer;padding:4px 8px;background:rgba(255,255,255,0.1);border:1px solid var(--border);border-radius:4px;transition:all 0.15s}
+.radio-label:hover{border-color:var(--accent)}
+.radio-label input{display:none}
+.radio-label.checked{background:rgba(74,144,217,0.2);border-color:var(--accent);color:var(--accent)}
+
+/* Node tooltip */
+#tooltip{position:fixed;background:rgba(0,0,0,0.85);color:white;padding:5px 10px;border-radius:4px;font-size:12px;pointer-events:none;z-index:500;display:none;max-width:200px;word-break:break-all}
+
+/* Edge label inline edit */
+.edge-label-input{position:absolute;background:var(--panel-bg);border:1px solid var(--accent);border-radius:3px;padding:2px 6px;font-size:12px;color:var(--text);z-index:100;min-width:60px}
+
+/* Scrollbar global */
+::-webkit-scrollbar{width:6px;height:6px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
+
+/* Left panel toggle button */
+#left-toggle{position:absolute;left:220px;top:50%;transform:translateY(-50%);width:14px;height:40px;background:var(--panel-bg);border:1px solid var(--border);border-left:none;border-radius:0 4px 4px 0;cursor:pointer;display:flex;align-items:center;justify-content:center;z-index:10;transition:left 0.2s;color:var(--text-dim)}
+#left-toggle:hover{color:var(--text)}
+body.left-collapsed #left-toggle{left:0}
+
+/* Node handles */
+.node-handle{fill:white;stroke:var(--accent);stroke-width:1.5;cursor:pointer;opacity:0}
+.node-handle:hover,.node-selected .node-handle{opacity:1}
+
+/* Edge connection dots */
+.conn-dot{fill:var(--accent);stroke:white;stroke-width:1.5;cursor:crosshair;opacity:0;r:5}
+
+/* SVG text */
+.node-text{pointer-events:none;user-select:none}
+
+/* Loading */
+#loading{position:fixed;inset:0;background:var(--bg);display:flex;align-items:center;justify-content:center;z-index:9999;font-size:18px;color:var(--accent)}
+</style>
+
+</style>
+</head>
+<body>
+<div id="loading"><i class="fa fa-spinner fa-spin"></i>&nbsp;加载中...</div>
+
+<!-- Toolbar -->
+<div id="toolbar">
+  <button class="tb-btn" id="btn-add-node" title="添加节点"><i class="fa fa-plus"></i> 添加节点</button>
+  <div class="tb-sep"></div>
+  <button class="tb-btn" id="btn-undo" title="撤销 Ctrl+Z"><i class="fa fa-undo"></i></button>
+  <button class="tb-btn" id="btn-redo" title="重做 Ctrl+Y"><i class="fa fa-redo"></i></button>
+  <div class="tb-sep"></div>
+  <button class="tb-btn" id="btn-remove-overlaps" title="消除重叠"><i class="fa fa-expand-arrows-alt"></i> 消除重叠</button>
+  <button class="tb-btn" id="btn-auto-layout" title="自动布局"><i class="fa fa-project-diagram"></i> 自动布局</button>
+  <div class="tb-sep"></div>
+  <select class="tb-select" id="color-scheme" title="配色方案">
+    <option value="default">默认</option>
+    <option value="warm">暖色</option>
+    <option value="cool">冷色</option>
+    <option value="grayscale">灰度</option>
+    <option value="night">夜间</option>
+  </select>
+  <div class="tb-sep"></div>
+  <button class="tb-btn" id="btn-import" title="导入JSON"><i class="fa fa-upload"></i> 导入</button>
+  <button class="tb-btn" id="btn-export-json" title="导出JSON"><i class="fa fa-download"></i> 导出JSON</button>
+  <button class="tb-btn" id="btn-export-img" title="导出图片"><i class="fa fa-image"></i> 导出图片</button>
+  <div class="tb-spacer"></div>
+  <button class="tb-btn" id="btn-zoom-out" title="缩小"><i class="fa fa-minus"></i></button>
+  <div id="zoom-display" title="点击重置100%">100%</div>
+  <button class="tb-btn" id="btn-zoom-in" title="放大"><i class="fa fa-plus"></i></button>
+  <div class="tb-sep"></div>
+  <button class="tb-btn" id="btn-theme" title="切换主题"><i class="fa fa-moon"></i></button>
+</div>
+
+<!-- Main area -->
+<div id="main-area">
+  <!-- Left panel -->
+  <div id="left-panel">
+    <div class="panel-tabs">
+      <div class="panel-tab active" data-tab="layers"><i class="fa fa-layer-group"></i> 图层</div>
+      <div class="panel-tab" data-tab="history"><i class="fa fa-history"></i> 历史</div>
+    </div>
+    <div class="panel-content" id="layers-content"></div>
+    <div class="panel-content" id="history-content" style="display:none"></div>
+  </div>
+
+  <!-- Canvas -->
+  <div id="canvas-container">
+    <svg id="main-svg">
+      <defs>
+        <pattern id="dot-grid" x="0" y="0" width="24" height="24" patternUnits="userSpaceOnUse">
+          <circle cx="12" cy="12" r="0.8" fill="rgba(100,120,180,0.4)"/>
+        </pattern>
+        <marker id="arrow-end" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+          <path d="M0,0 L0,6 L8,3 z" fill="#999"/>
+        </marker>
+        <marker id="arrow-start" markerWidth="8" markerHeight="8" refX="2" refY="3" orient="auto-start-reverse">
+          <path d="M0,0 L0,6 L8,3 z" fill="#999"/>
+        </marker>
+        <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+          <feDropShadow dx="0" dy="2" stdDeviation="3" flood-opacity="0.3"/>
+        </filter>
+      </defs>
+      <rect id="bg-rect" width="100%" height="100%" fill="url(#dot-grid)"/>
+      <g id="graph-layer">
+        <g id="edges-layer"></g>
+        <g id="nodes-layer"></g>
+      </g>
+    </svg>
+    <div id="rubber-band"></div>
+    <div id="tooltip"></div>
+  </div>
+
+  <!-- Right panel -->
+  <div id="right-panel" class="hidden">
+    <div id="rp-node-panel">
+      <div class="rp-section">
+        <div class="rp-title">节点属性</div>
+        <div class="rp-row">
+          <div class="rp-label">标签</div>
+          <textarea class="rp-input" id="rp-label" rows="2"></textarea>
+        </div>
+        <div class="rp-row">
+          <div class="rp-label">字体</div>
+          <select class="rp-select" id="rp-font">
+            <option value="Source Han Sans SC">思源黑体</option>
+            <option value="Source Han Serif SC">思源宋体</option>
+            <option value="Microsoft YaHei">微软雅黑</option>
+            <option value="KaiTi">楷体</option>
+            <option value="Arial">Arial</option>
+            <option value="Georgia">Georgia</option>
+          </select>
+        </div>
+        <div class="rp-row">
+          <div class="rp-label">字号: <span id="rp-fontsize-val">14</span>px</div>
+          <div class="slider-row">
+            <input type="range" id="rp-fontsize" min="10" max="40" value="14">
+          </div>
+        </div>
+        <div class="rp-row">
+          <div class="rp-label">字色</div>
+          <div class="color-row">
+            <input type="color" id="rp-fontcolor" value="#ffffff">
+            <span style="font-size:12px;color:var(--text-dim)">字体颜色</span>
+          </div>
+        </div>
+        <div class="rp-row">
+          <div class="rp-label">样式</div>
+          <div class="toggle-row">
+            <button class="toggle-btn" id="rp-bold"><b>B</b></button>
+            <button class="toggle-btn" id="rp-italic"><i>I</i></button>
+          </div>
+        </div>
+      </div>
+      <div class="rp-section">
+        <div class="rp-title">形状</div>
+        <div class="rp-row">
+          <div class="shape-grid">
+            <button class="shape-btn active" data-shape="circle">圆形</button>
+            <button class="shape-btn" data-shape="ellipse">椭圆</button>
+            <button class="shape-btn" data-shape="rounded-rect">圆角矩形</button>
+            <button class="shape-btn" data-shape="rect">矩形</button>
+            <button class="shape-btn" data-shape="diamond">菱形</button>
+          </div>
+        </div>
+        <div class="rp-row">
+          <div class="rp-label">大小: <span id="rp-size-val">40</span>px</div>
+          <div class="slider-row">
+            <input type="range" id="rp-size" min="20" max="150" value="40">
+          </div>
+        </div>
+      </div>
+      <div class="rp-section">
+        <div class="rp-title">颜色</div>
+        <div class="rp-row">
+          <div class="rp-label">填充色</div>
+          <div class="color-row">
+            <input type="color" id="rp-fill" value="#4A90D9">
+            <span style="font-size:12px;color:var(--text-dim)">填充颜色</span>
+          </div>
+        </div>
+        <div class="rp-row">
+          <div class="rp-label">填充透明度: <span id="rp-opacity-val">100</span>%</div>
+          <div class="slider-row">
+            <input type="range" id="rp-opacity" min="0" max="100" value="100">
+          </div>
+        </div>
+        <div class="rp-row">
+          <div class="rp-label">描边色</div>
+          <div class="color-row">
+            <input type="color" id="rp-stroke" value="#2C6FAC">
+            <span style="font-size:12px;color:var(--text-dim)">描边颜色</span>
+          </div>
+        </div>
+        <div class="rp-row">
+          <div class="rp-label">描边宽度: <span id="rp-strokewidth-val">2</span>px</div>
+          <div class="slider-row">
+            <input type="range" id="rp-strokewidth" min="0" max="8" value="2" step="0.5">
+          </div>
+        </div>
+      </div>
+      <div class="rp-section">
+        <button class="btn-danger" id="rp-delete-node"><i class="fa fa-trash"></i> 删除节点</button>
+      </div>
+    </div>
+    <div id="rp-edge-panel" style="display:none">
+      <div class="rp-section">
+        <div class="rp-title">边属性</div>
+        <div class="rp-row">
+          <div class="rp-label">颜色</div>
+          <div class="color-row">
+            <input type="color" id="rp-edge-color" value="#999999">
+            <span style="font-size:12px;color:var(--text-dim)">边颜色</span>
+          </div>
+        </div>
+        <div class="rp-row">
+          <div class="rp-label">线宽: <span id="rp-edge-width-val">1.5</span>px</div>
+          <div class="slider-row">
+            <input type="range" id="rp-edge-width" min="1" max="6" value="1.5" step="0.5">
+          </div>
+        </div>
+        <div class="rp-row">
+          <div class="rp-label">箭头</div>
+          <select class="rp-select" id="rp-edge-arrow">
+            <option value="none">无</option>
+            <option value="single">单向</option>
+            <option value="double">双向</option>
+          </select>
+        </div>
+        <div class="rp-row">
+          <div class="rp-label">线型</div>
+          <select class="rp-select" id="rp-edge-style">
+            <option value="solid">实线</option>
+            <option value="dashed">虚线</option>
+            <option value="dotted">点线</option>
+          </select>
+        </div>
+        <div class="rp-row">
+          <div class="rp-label">曲率: <span id="rp-edge-curve-val">0</span></div>
+          <div class="slider-row">
+            <input type="range" id="rp-edge-curve" min="0" max="1" value="0" step="0.05">
+          </div>
+        </div>
+        <div class="rp-row">
+          <div class="rp-label">标签</div>
+          <input type="text" class="rp-input" id="rp-edge-label" placeholder="边标签...">
+        </div>
+        <button class="btn-primary" id="rp-edge-reverse"><i class="fa fa-exchange-alt"></i> 反转方向</button>
+        <button class="btn-danger" id="rp-delete-edge"><i class="fa fa-trash"></i> 删除边</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Context Menu -->
+<div id="context-menu">
+  <div class="ctx-item" id="ctx-delete"><i class="fa fa-trash"></i> 删除</div>
+  <div class="ctx-item" id="ctx-copy"><i class="fa fa-copy"></i> 复制</div>
+  <div class="ctx-item" id="ctx-subtree"><i class="fa fa-sitemap"></i> 选中子树</div>
+  <div class="ctx-item" id="ctx-reverse"><i class="fa fa-exchange-alt"></i> 反转边</div>
+  <div class="ctx-sep"></div>
+  <div class="ctx-item ctx-edge-only" id="ctx-edge-delete"><i class="fa fa-trash"></i> 删除边</div>
+</div>
+
+<!-- NL Command Bar -->
+<div id="nl-bar">
+  <div id="nl-toggle"><i class="fa fa-terminal"></i> 自然语言命令</div>
+  <div id="nl-input-area">
+    <input type="text" id="nl-input" placeholder="例如：删除【设计方法】节点 / 把【A】改成【red】 / 添加节点【新节点】">
+    <div id="nl-result"></div>
+    <div class="nl-hint">命令格式：删除【X】节点 | 把【X】改成【颜色】 | 把【X】文字改为【Y】 | 在【A】和【B】之间添加连线 | 添加节点【X】</div>
+  </div>
+</div>
+
+<!-- Shortcut hint -->
+<div id="shortcut-hint">
+  <h4><i class="fa fa-keyboard"></i> 快捷键</h4>
+  <div class="hint-row"><span class="hint-key">Ctrl+Z</span><span class="hint-desc">撤销</span></div>
+  <div class="hint-row"><span class="hint-key">Ctrl+Y</span><span class="hint-desc">重做</span></div>
+  <div class="hint-row"><span class="hint-key">Ctrl+A</span><span class="hint-desc">全选</span></div>
+  <div class="hint-row"><span class="hint-key">Ctrl+D</span><span class="hint-desc">复制节点</span></div>
+  <div class="hint-row"><span class="hint-key">Delete</span><span class="hint-desc">删除所选</span></div>
+  <div class="hint-row"><span class="hint-key">Space+拖拽</span><span class="hint-desc">平移画布</span></div>
+  <div class="hint-row"><span class="hint-key">鼠标滚轮</span><span class="hint-desc">缩放</span></div>
+  <div class="hint-row"><span class="hint-key">悬停节点边缘</span><span class="hint-desc">创建连线</span></div>
+  <button id="close-hint">知道了</button>
+</div>
+
+<!-- Export Modal -->
+<div id="modal-overlay">
+  <div class="modal">
+    <h3 id="modal-title">导出图片</h3>
+    <div class="modal-row">
+      <label>格式</label>
+      <div class="radio-group" id="export-format">
+        <label class="radio-label checked"><input type="radio" name="fmt" value="png" checked>PNG</label>
+        <label class="radio-label"><input type="radio" name="fmt" value="svg">SVG</label>
+      </div>
+    </div>
+    <div class="modal-row" id="export-res-row">
+      <label>分辨率</label>
+      <div class="radio-group" id="export-res">
+        <label class="radio-label checked"><input type="radio" name="res" value="1" checked>1x</label>
+        <label class="radio-label"><input type="radio" name="res" value="2">2x</label>
+        <label class="radio-label"><input type="radio" name="res" value="4">4x</label>
+      </div>
+    </div>
+    <div class="modal-row">
+      <label>范围</label>
+      <div class="radio-group" id="export-range">
+        <label class="radio-label checked"><input type="radio" name="range" value="all" checked>全部节点</label>
+        <label class="radio-label"><input type="radio" name="range" value="viewport">当前视口</label>
+      </div>
+    </div>
+    <div class="modal-row">
+      <label>背景</label>
+      <div class="radio-group" id="export-bg">
+        <label class="radio-label checked"><input type="radio" name="bg" value="dot" checked>网格</label>
+        <label class="radio-label"><input type="radio" name="bg" value="white">白色</label>
+        <label class="radio-label"><input type="radio" name="bg" value="transparent">透明</label>
+      </div>
+    </div>
+    <div class="modal-btns">
+      <button class="modal-cancel" id="modal-cancel">取消</button>
+      <button class="modal-confirm" id="modal-confirm">导出</button>
+    </div>
+  </div>
+</div>
+
+<!-- Confirm Modal -->
+<div id="confirm-overlay" style="position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:1100;display:none;align-items:center;justify-content:center">
+  <div class="modal">
+    <h3 id="confirm-title">确认操作</h3>
+    <p id="confirm-msg" style="margin-bottom:16px;font-size:14px;color:var(--text-dim)"></p>
+    <div class="modal-btns">
+      <button class="modal-cancel" id="confirm-cancel">取消</button>
+      <button class="modal-confirm" id="confirm-ok">确认</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast-container"></div>
+
+<input type="file" id="file-input" accept=".json" style="display:none">
+<script>
+// ============================================================
+// STATE MANAGEMENT
+// ============================================================
+const state = {
+  nodes: [],
+  edges: [],
+  selectedNodes: new Set(),
+  selectedEdge: null,
+  transform: { x: 0, y: 0, k: 1 },
+  history: [],
+  historyIndex: -1,
+  isDragging: false,
+  isPanning: false,
+  isConnecting: false,
+  connectSource: null,
+  spaceDown: false,
+  rubberBand: { active: false, x0: 0, y0: 0 },
+  theme: 'dark',
+  nodeIdCounter: 100,
+  edgeIdCounter: 100
+};
+
+// ============================================================
+// SAMPLE DATA
+// ============================================================
+const SAMPLE_DATA = {
+  nodes: [
+    {id:'n001',label:'设计方法',x:600,y:300,r:70,shape:'circle',fill:'#4A90D9',stroke:'#2C6FAC',strokeWidth:2,fontSize:16,fontFamily:'Microsoft YaHei',fontColor:'#FFFFFF',bold:true,italic:false,opacity:1},
+    {id:'n002',label:'第一代设计方法',x:200,y:180,r:60,shape:'circle',fill:'#3A7BC8',stroke:'#2C6FAC',strokeWidth:2,fontSize:13,fontFamily:'Microsoft YaHei',fontColor:'#FFFFFF',bold:false,italic:false,opacity:1},
+    {id:'n003',label:'第二代设计方法',x:400,y:120,r:65,shape:'circle',fill:'#3A7BC8',stroke:'#2C6FAC',strokeWidth:2,fontSize:13,fontFamily:'Microsoft YaHei',fontColor:'#FFFFFF',bold:false,italic:false,opacity:1},
+    {id:'n004',label:'第三代设计方法',x:800,y:120,r:65,shape:'circle',fill:'#3A7BC8',stroke:'#2C6FAC',strokeWidth:2,fontSize:13,fontFamily:'Microsoft YaHei',fontColor:'#FFFFFF',bold:false,italic:false,opacity:1},
+    {id:'n005',label:'第四代设计方法',x:1000,y:180,r:60,shape:'circle',fill:'#3A7BC8',stroke:'#2C6FAC',strokeWidth:2,fontSize:13,fontFamily:'Microsoft YaHei',fontColor:'#FFFFFF',bold:false,italic:false,opacity:1},
+    {id:'n006',label:'方法',x:600,y:500,r:62,shape:'circle',fill:'#4A90D9',stroke:'#2C6FAC',strokeWidth:2,fontSize:15,fontFamily:'Microsoft YaHei',fontColor:'#FFFFFF',bold:false,italic:false,opacity:1},
+    {id:'n007',label:'反思的实践者',x:900,y:420,r:58,shape:'circle',fill:'#4A90D9',stroke:'#2C6FAC',strokeWidth:2,fontSize:14,fontFamily:'Microsoft YaHei',fontColor:'#FFFFFF',bold:false,italic:false,opacity:1},
+    {id:'n008',label:'以用户为中心的设计',x:100,y:450,r:65,shape:'circle',fill:'#27AE60',stroke:'#1E8449',strokeWidth:2,fontSize:12,fontFamily:'Microsoft YaHei',fontColor:'#FFFFFF',bold:false,italic:false,opacity:1},
+    {id:'n009',label:'生活实验室',x:250,y:550,r:58,shape:'circle',fill:'#27AE60',stroke:'#1E8449',strokeWidth:2,fontSize:13,fontFamily:'Microsoft YaHei',fontColor:'#FFFFFF',bold:false,italic:false,opacity:1},
+    {id:'n010',label:'共情设计',x:400,y:620,r:55,shape:'circle',fill:'#27AE60',stroke:'#1E8449',strokeWidth:2,fontSize:14,fontFamily:'Microsoft YaHei',fontColor:'#FFFFFF',bold:false,italic:false,opacity:1},
+    {id:'n011',label:'生成式共创',x:580,y:680,r:60,shape:'circle',fill:'#27AE60',stroke:'#1E8449',strokeWidth:2,fontSize:13,fontFamily:'Microsoft YaHei',fontColor:'#FFFFFF',bold:false,italic:false,opacity:1},
+    {id:'n012',label:'转型设计',x:760,y:620,r:58,shape:'circle',fill:'#27AE60',stroke:'#1E8449',strokeWidth:2,fontSize:14,fontFamily:'Microsoft YaHei',fontColor:'#FFFFFF',bold:false,italic:false,opacity:1},
+    {id:'n013',label:'超学科设计',x:920,y:550,r:58,shape:'circle',fill:'#27AE60',stroke:'#1E8449',strokeWidth:2,fontSize:13,fontFamily:'Microsoft YaHei',fontColor:'#FFFFFF',bold:false,italic:false,opacity:1},
+    {id:'n014',label:'系统性设计',x:1060,y:450,r:55,shape:'circle',fill:'#27AE60',stroke:'#1E8449',strokeWidth:2,fontSize:14,fontFamily:'Microsoft YaHei',fontColor:'#FFFFFF',bold:false,italic:false,opacity:1},
+    {id:'n015',label:'CoDesign国际会议\n（2000）',x:150,y:300,r:45,shape:'circle',fill:'#E74C3C',stroke:'#C0392B',strokeWidth:2,fontSize:11,fontFamily:'Microsoft YaHei',fontColor:'#FFFFFF',bold:false,italic:false,opacity:1},
+    {id:'n016',label:'设计方法会议\n（1962）',x:350,y:220,r:48,shape:'circle',fill:'#E74C3C',stroke:'#C0392B',strokeWidth:2,fontSize:11,fontFamily:'Microsoft YaHei',fontColor:'#FFFFFF',bold:false,italic:false,opacity:1},
+    {id:'n017',label:'关联系统思维与\n设计会议（RSD）',x:850,y:220,r:48,shape:'circle',fill:'#E74C3C',stroke:'#C0392B',strokeWidth:2,fontSize:11,fontFamily:'Microsoft YaHei',fontColor:'#FFFFFF',bold:false,italic:false,opacity:1},
+    {id:'n018',label:'设计与情感大会\n（1999）',x:1050,y:300,r:45,shape:'circle',fill:'#E74C3C',stroke:'#C0392B',strokeWidth:2,fontSize:11,fontFamily:'Microsoft YaHei',fontColor:'#FFFFFF',bold:false,italic:false,opacity:1},
+    {id:'n019',label:'模式语言',x:450,y:360,r:40,shape:'circle',fill:'#E67E22',stroke:'#CA6F1E',strokeWidth:2,fontSize:13,fontFamily:'Microsoft YaHei',fontColor:'#FFFFFF',bold:false,italic:false,opacity:1},
+    {id:'n020',label:'设计科学',x:600,y:200,r:42,shape:'circle',fill:'#E67E22',stroke:'#CA6F1E',strokeWidth:2,fontSize:13,fontFamily:'Microsoft YaHei',fontColor:'#FFFFFF',bold:false,italic:false,opacity:1},
+    {id:'n021',label:'《CoDesign》期刊',x:750,y:360,r:40,shape:'circle',fill:'#E67E22',stroke:'#CA6F1E',strokeWidth:2,fontSize:12,fontFamily:'Microsoft YaHei',fontColor:'#FFFFFF',bold:false,italic:false,opacity:1},
+    {id:'n022',label:'AttrakDiff工具',x:300,y:720,r:35,shape:'circle',fill:'#8E44AD',stroke:'#6C3483',strokeWidth:2,fontSize:12,fontFamily:'Microsoft YaHei',fontColor:'#FFFFFF',bold:false,italic:false,opacity:1},
+    {id:'n023',label:'产品情感\n测量工具',x:500,y:780,r:35,shape:'circle',fill:'#8E44AD',stroke:'#6C3483',strokeWidth:2,fontSize:12,fontFamily:'Microsoft YaHei',fontColor:'#FFFFFF',bold:false,italic:false,opacity:1},
+    {id:'n024',label:'情境映射',x:50,y:650,r:22,shape:'circle',fill:'#2980B9',stroke:'#1A5276',strokeWidth:1.5,fontSize:11,fontFamily:'Microsoft YaHei',fontColor:'#FFFFFF',bold:false,italic:false,opacity:1},
+    {id:'n025',label:'参与式设计',x:150,y:720,r:22,shape:'circle',fill:'#2980B9',stroke:'#1A5276',strokeWidth:1.5,fontSize:11,fontFamily:'Microsoft YaHei',fontColor:'#FFFFFF',bold:false,italic:false,opacity:1},
+    {id:'n026',label:'设计思维',x:700,y:180,r:22,shape:'circle',fill:'#2980B9',stroke:'#1A5276',strokeWidth:1.5,fontSize:11,fontFamily:'Microsoft YaHei',fontColor:'#FFFFFF',bold:false,italic:false,opacity:1},
+    {id:'n027',label:'体验设计',x:500,y:470,r:22,shape:'circle',fill:'#2980B9',stroke:'#1A5276',strokeWidth:1.5,fontSize:11,fontFamily:'Microsoft YaHei',fontColor:'#FFFFFF',bold:false,italic:false,opacity:1},
+    {id:'n028',label:'Design X',x:700,y:470,r:22,shape:'circle',fill:'#2980B9',stroke:'#1A5276',strokeWidth:1.5,fontSize:11,fontFamily:'Microsoft YaHei',fontColor:'#FFFFFF',bold:false,italic:false,opacity:1},
+    {id:'n029',label:'以人为中心\n的设计',x:1150,y:380,r:22,shape:'circle',fill:'#2980B9',stroke:'#1A5276',strokeWidth:1.5,fontSize:11,fontFamily:'Microsoft YaHei',fontColor:'#FFFFFF',bold:false,italic:false,opacity:1},
+    {id:'n030',label:'社会创新设计',x:1150,y:480,r:22,shape:'circle',fill:'#2980B9',stroke:'#1A5276',strokeWidth:1.5,fontSize:11,fontFamily:'Microsoft YaHei',fontColor:'#FFFFFF',bold:false,italic:false,opacity:1},
+    {id:'n031',label:'有效性',x:480,y:180,r:20,shape:'circle',fill:'#2980B9',stroke:'#1A5276',strokeWidth:1.5,fontSize:11,fontFamily:'Microsoft YaHei',fontColor:'#FFFFFF',bold:false,italic:false,opacity:1},
+    {id:'n032',label:'目的性',x:560,y:160,r:20,shape:'circle',fill:'#2980B9',stroke:'#1A5276',strokeWidth:1.5,fontSize:11,fontFamily:'Microsoft YaHei',fontColor:'#FFFFFF',bold:false,italic:false,opacity:1},
+    {id:'n033',label:'规范性',x:640,y:150,r:20,shape:'circle',fill:'#2980B9',stroke:'#1A5276',strokeWidth:1.5,fontSize:11,fontFamily:'Microsoft YaHei',fontColor:'#FFFFFF',bold:false,italic:false,opacity:1},
+    {id:'n034',label:'实用主义',x:200,y:380,r:20,shape:'circle',fill:'#2980B9',stroke:'#1A5276',strokeWidth:1.5,fontSize:11,fontFamily:'Microsoft YaHei',fontColor:'#FFFFFF',bold:false,italic:false,opacity:1},
+    {id:'n035',label:'理性主义',x:300,y:320,r:20,shape:'circle',fill:'#2980B9',stroke:'#1A5276',strokeWidth:1.5,fontSize:11,fontFamily:'Microsoft YaHei',fontColor:'#FFFFFF',bold:false,italic:false,opacity:1},
+    {id:'n036',label:'建构主义',x:900,y:320,r:20,shape:'circle',fill:'#2980B9',stroke:'#1A5276',strokeWidth:1.5,fontSize:11,fontFamily:'Microsoft YaHei',fontColor:'#FFFFFF',bold:false,italic:false,opacity:1},
+    {id:'n037',label:'认知科学',x:1000,y:380,r:20,shape:'circle',fill:'#2980B9',stroke:'#1A5276',strokeWidth:1.5,fontSize:11,fontFamily:'Microsoft YaHei',fontColor:'#FFFFFF',bold:false,italic:false,opacity:1},
+    {id:'n038',label:'迭代',x:650,y:780,r:20,shape:'circle',fill:'#27AE60',stroke:'#1E8449',strokeWidth:1.5,fontSize:11,fontFamily:'Microsoft YaHei',fontColor:'#FFFFFF',bold:false,italic:false,opacity:1},
+    {id:'n039',label:'文化探针',x:750,y:730,r:20,shape:'circle',fill:'#27AE60',stroke:'#1E8449',strokeWidth:1.5,fontSize:11,fontFamily:'Microsoft YaHei',fontColor:'#FFFFFF',bold:false,italic:false,opacity:1},
+    {id:'n040',label:'原型制作',x:850,y:700,r:22,shape:'circle',fill:'#27AE60',stroke:'#1E8449',strokeWidth:1.5,fontSize:11,fontFamily:'Microsoft YaHei',fontColor:'#FFFFFF',bold:false,italic:false,opacity:1},
+    {id:'n041',label:'认知走查',x:950,y:670,r:20,shape:'circle',fill:'#27AE60',stroke:'#1E8449',strokeWidth:1.5,fontSize:11,fontFamily:'Microsoft YaHei',fontColor:'#FFFFFF',bold:false,italic:false,opacity:1},
+    {id:'n042',label:'情境调查',x:1050,y:620,r:20,shape:'circle',fill:'#27AE60',stroke:'#1E8449',strokeWidth:1.5,fontSize:11,fontFamily:'Microsoft YaHei',fontColor:'#FFFFFF',bold:false,italic:false,opacity:1},
+    {id:'n043',label:'用户画像',x:1130,y:560,r:20,shape:'circle',fill:'#27AE60',stroke:'#1E8449',strokeWidth:1.5,fontSize:11,fontFamily:'Microsoft YaHei',fontColor:'#FFFFFF',bold:false,italic:false,opacity:1},
+    {id:'n044',label:'可用性',x:400,y:740,r:20,shape:'circle',fill:'#27AE60',stroke:'#1E8449',strokeWidth:1.5,fontSize:11,fontFamily:'Microsoft YaHei',fontColor:'#FFFFFF',bold:false,italic:false,opacity:1},
+    {id:'n045',label:'A/B测试',x:480,y:820,r:20,shape:'circle',fill:'#27AE60',stroke:'#1E8449',strokeWidth:1.5,fontSize:11,fontFamily:'Microsoft YaHei',fontColor:'#FFFFFF',bold:false,italic:false,opacity:1},
+    {id:'n046',label:'可用性测试',x:580,y:860,r:20,shape:'circle',fill:'#27AE60',stroke:'#1E8449',strokeWidth:1.5,fontSize:11,fontFamily:'Microsoft YaHei',fontColor:'#FFFFFF',bold:false,italic:false,opacity:1},
+    {id:'n047',label:'突破性创新',x:800,y:820,r:20,shape:'circle',fill:'#27AE60',stroke:'#1E8449',strokeWidth:1.5,fontSize:11,fontFamily:'Microsoft YaHei',fontColor:'#FFFFFF',bold:false,italic:false,opacity:1},
+    {id:'n048',label:'渐进式创新',x:900,y:780,r:20,shape:'circle',fill:'#27AE60',stroke:'#1E8449',strokeWidth:1.5,fontSize:11,fontFamily:'Microsoft YaHei',fontColor:'#FFFFFF',bold:false,italic:false,opacity:1},
+    {id:'n049',label:'启发式评估',x:700,y:860,r:20,shape:'circle',fill:'#27AE60',stroke:'#1E8449',strokeWidth:1.5,fontSize:11,fontFamily:'Microsoft YaHei',fontColor:'#FFFFFF',bold:false,italic:false,opacity:1}
+  ],
+  edges: [
+    {id:'e001',source:'n001',target:'n002',color:'#4A90D9',width:2,arrowMode:'single',lineStyle:'solid',curvature:0,label:''},
+    {id:'e002',source:'n001',target:'n003',color:'#4A90D9',width:2,arrowMode:'single',lineStyle:'solid',curvature:0,label:''},
+    {id:'e003',source:'n001',target:'n004',color:'#4A90D9',width:2,arrowMode:'single',lineStyle:'solid',curvature:0,label:''},
+    {id:'e004',source:'n001',target:'n005',color:'#4A90D9',width:2,arrowMode:'single',lineStyle:'solid',curvature:0,label:''},
+    {id:'e005',source:'n001',target:'n006',color:'#4A90D9',width:2,arrowMode:'single',lineStyle:'solid',curvature:0,label:'包含'},
+    {id:'e006',source:'n001',target:'n020',color:'#4A90D9',width:1.5,arrowMode:'single',lineStyle:'dashed',curvature:0,label:''},
+    {id:'e007',source:'n002',target:'n008',color:'#27AE60',width:1.5,arrowMode:'single',lineStyle:'solid',curvature:0,label:''},
+    {id:'e008',source:'n002',target:'n015',color:'#E74C3C',width:1.5,arrowMode:'single',lineStyle:'solid',curvature:0,label:''},
+    {id:'e009',source:'n002',target:'n016',color:'#E74C3C',width:1.5,arrowMode:'single',lineStyle:'solid',curvature:0,label:''},
+    {id:'e010',source:'n003',target:'n009',color:'#27AE60',width:1.5,arrowMode:'single',lineStyle:'solid',curvature:0,label:''},
+    {id:'e011',source:'n003',target:'n010',color:'#27AE60',width:1.5,arrowMode:'single',lineStyle:'solid',curvature:0,label:''},
+    {id:'e012',source:'n003',target:'n019',color:'#E67E22',width:1.5,arrowMode:'single',lineStyle:'solid',curvature:0,label:''},
+    {id:'e013',source:'n004',target:'n011',color:'#27AE60',width:1.5,arrowMode:'single',lineStyle:'solid',curvature:0,label:''},
+    {id:'e014',source:'n004',target:'n012',color:'#27AE60',width:1.5,arrowMode:'single',lineStyle:'solid',curvature:0,label:''},
+    {id:'e015',source:'n004',target:'n017',color:'#E74C3C',width:1.5,arrowMode:'single',lineStyle:'solid',curvature:0,label:''},
+    {id:'e016',source:'n005',target:'n013',color:'#27AE60',width:1.5,arrowMode:'single',lineStyle:'solid',curvature:0,label:''},
+    {id:'e017',source:'n005',target:'n014',color:'#27AE60',width:1.5,arrowMode:'single',lineStyle:'solid',curvature:0,label:''},
+    {id:'e018',source:'n005',target:'n018',color:'#E74C3C',width:1.5,arrowMode:'single',lineStyle:'solid',curvature:0,label:''},
+    {id:'e019',source:'n006',target:'n024',color:'#2980B9',width:1,arrowMode:'single',lineStyle:'solid',curvature:0,label:''},
+    {id:'e020',source:'n006',target:'n025',color:'#2980B9',width:1,arrowMode:'single',lineStyle:'solid',curvature:0,label:''},
+    {id:'e021',source:'n006',target:'n026',color:'#2980B9',width:1,arrowMode:'single',lineStyle:'solid',curvature:0,label:''},
+    {id:'e022',source:'n006',target:'n027',color:'#2980B9',width:1,arrowMode:'single',lineStyle:'solid',curvature:0,label:''},
+    {id:'e023',source:'n006',target:'n028',color:'#2980B9',width:1,arrowMode:'single',lineStyle:'solid',curvature:0,label:''},
+    {id:'e024',source:'n007',target:'n029',color:'#2980B9',width:1,arrowMode:'single',lineStyle:'solid',curvature:0,label:''},
+    {id:'e025',source:'n007',target:'n030',color:'#2980B9',width:1,arrowMode:'single',lineStyle:'solid',curvature:0,label:''},
+    {id:'e026',source:'n007',target:'n036',color:'#2980B9',width:1,arrowMode:'single',lineStyle:'dashed',curvature:0,label:''},
+    {id:'e027',source:'n007',target:'n037',color:'#2980B9',width:1,arrowMode:'single',lineStyle:'dashed',curvature:0,label:''},
+    {id:'e028',source:'n001',target:'n031',color:'#999',width:1,arrowMode:'single',lineStyle:'dashed',curvature:0,label:''},
+    {id:'e029',source:'n001',target:'n032',color:'#999',width:1,arrowMode:'single',lineStyle:'dashed',curvature:0,label:''},
+    {id:'e030',source:'n001',target:'n033',color:'#999',width:1,arrowMode:'single',lineStyle:'dashed',curvature:0,label:''},
+    {id:'e031',source:'n002',target:'n034',color:'#999',width:1,arrowMode:'single',lineStyle:'dashed',curvature:0,label:''},
+    {id:'e032',source:'n002',target:'n035',color:'#999',width:1,arrowMode:'single',lineStyle:'dashed',curvature:0,label:''},
+    {id:'e033',source:'n010',target:'n022',color:'#8E44AD',width:1,arrowMode:'single',lineStyle:'solid',curvature:0,label:''},
+    {id:'e034',source:'n010',target:'n023',color:'#8E44AD',width:1,arrowMode:'single',lineStyle:'solid',curvature:0,label:''},
+    {id:'e035',source:'n011',target:'n038',color:'#27AE60',width:1,arrowMode:'single',lineStyle:'solid',curvature:0,label:''},
+    {id:'e036',source:'n011',target:'n039',color:'#27AE60',width:1,arrowMode:'single',lineStyle:'solid',curvature:0,label:''},
+    {id:'e037',source:'n011',target:'n040',color:'#27AE60',width:1,arrowMode:'single',lineStyle:'solid',curvature:0,label:''},
+    {id:'e038',source:'n012',target:'n041',color:'#27AE60',width:1,arrowMode:'single',lineStyle:'solid',curvature:0,label:''},
+    {id:'e039',source:'n012',target:'n042',color:'#27AE60',width:1,arrowMode:'single',lineStyle:'solid',curvature:0,label:''},
+    {id:'e040',source:'n013',target:'n043',color:'#27AE60',width:1,arrowMode:'single',lineStyle:'solid',curvature:0,label:''},
+    {id:'e041',source:'n014',target:'n029',color:'#2980B9',width:1,arrowMode:'single',lineStyle:'solid',curvature:0.2,label:''},
+    {id:'e042',source:'n008',target:'n044',color:'#27AE60',width:1,arrowMode:'single',lineStyle:'solid',curvature:0,label:''},
+    {id:'e043',source:'n008',target:'n045',color:'#27AE60',width:1,arrowMode:'single',lineStyle:'solid',curvature:0,label:''},
+    {id:'e044',source:'n008',target:'n046',color:'#27AE60',width:1,arrowMode:'single',lineStyle:'solid',curvature:0,label:''},
+    {id:'e045',source:'n012',target:'n047',color:'#27AE60',width:1,arrowMode:'single',lineStyle:'solid',curvature:0,label:''},
+    {id:'e046',source:'n012',target:'n048',color:'#27AE60',width:1,arrowMode:'single',lineStyle:'solid',curvature:0,label:''},
+    {id:'e047',source:'n013',target:'n049',color:'#27AE60',width:1,arrowMode:'single',lineStyle:'solid',curvature:0,label:''},
+    {id:'e048',source:'n019',target:'n035',color:'#E67E22',width:1,arrowMode:'single',lineStyle:'dashed',curvature:0,label:''},
+    {id:'e049',source:'n021',target:'n015',color:'#E67E22',width:1,arrowMode:'double',lineStyle:'solid',curvature:0.2,label:'相关'},
+    {id:'e050',source:'n020',target:'n031',color:'#E67E22',width:1,arrowMode:'single',lineStyle:'dashed',curvature:0,label:''}
+  ]
+};
+
+// ============================================================
+// UTILITY FUNCTIONS
+// ============================================================
+function genId(prefix) {
+  if (prefix === 'n') return 'n' + String(++state.nodeIdCounter).padStart(3,'0');
+  return 'e' + String(++state.edgeIdCounter).padStart(3,'0');
+}
+
+function showToast(msg, type='info', duration=3000) {
+  const container = document.getElementById('toast-container');
+  const toast = document.createElement('div');
+  toast.className = `toast ${type}`;
+  toast.textContent = msg;
+  container.appendChild(toast);
+  setTimeout(() => {
+    toast.style.opacity = '0';
+    toast.style.transition = 'opacity 0.3s';
+    setTimeout(() => toast.remove(), 300);
+  }, duration);
+}
+
+function showConfirm(title, msg) {
+  return new Promise(resolve => {
+    document.getElementById('confirm-title').textContent = title;
+    document.getElementById('confirm-msg').textContent = msg;
+    const overlay = document.getElementById('confirm-overlay');
+    overlay.style.display = 'flex';
+    const ok = document.getElementById('confirm-ok');
+    const cancel = document.getElementById('confirm-cancel');
+    const cleanup = (result) => {
+      overlay.style.display = 'none';
+      ok.removeEventListener('click', onOk);
+      cancel.removeEventListener('click', onCancel);
+      resolve(result);
+    };
+    const onOk = () => cleanup(true);
+    const onCancel = () => cleanup(false);
+    ok.addEventListener('click', onOk);
+    cancel.addEventListener('click', onCancel);
+  });
+}
+
+function hexToRgba(hex, alpha=1) {
+  const r = parseInt(hex.slice(1,3),16);
+  const g = parseInt(hex.slice(3,5),16);
+  const b = parseInt(hex.slice(5,7),16);
+  return `rgba(${r},${g},${b},${alpha})`;
+}
+
+function deepClone(obj) {
+  return JSON.parse(JSON.stringify(obj));
+}
+
+function getNodeById(id) { return state.nodes.find(n=>n.id===id); }
+function getEdgeById(id) { return state.edges.find(e=>e.id===id); }
+
+function pointInNode(node, px, py) {
+  const dx = px - node.x, dy = py - node.y;
+  const r = node.r || 30;
+  switch(node.shape) {
+    case 'circle': return dx*dx + dy*dy <= r*r;
+    case 'ellipse': return (dx*dx)/(r*r) + (dy*dy)/((r*0.65)*(r*0.65)) <= 1;
+    case 'rect': return Math.abs(dx) <= r && Math.abs(dy) <= r*0.65;
+    case 'rounded-rect': return Math.abs(dx) <= r && Math.abs(dy) <= r*0.65;
+    case 'diamond': return Math.abs(dx)/r + Math.abs(dy)/(r*0.75) <= 1;
+    default: return dx*dx + dy*dy <= r*r;
+  }
+}
+
+// ============================================================
+// HISTORY (UNDO/REDO)
+// ============================================================
+function saveHistory(desc='操作') {
+  const snapshot = {
+    nodes: deepClone(state.nodes),
+    edges: deepClone(state.edges),
+    desc
+  };
+  // Trim future
+  if (state.historyIndex < state.history.length - 1) {
+    state.history = state.history.slice(0, state.historyIndex + 1);
+  }
+  state.history.push(snapshot);
+  if (state.history.length > 50) state.history.shift();
+  state.historyIndex = state.history.length - 1;
+  updateHistoryPanel();
+}
+
+function undo() {
+  if (state.historyIndex <= 0) { showToast('没有可撤销的操作','warning'); return; }
+  state.historyIndex--;
+  restoreSnapshot(state.history[state.historyIndex]);
+  showToast('已撤销','info',1500);
+}
+
+function redo() {
+  if (state.historyIndex >= state.history.length - 1) { showToast('没有可重做的操作','warning'); return; }
+  state.historyIndex++;
+  restoreSnapshot(state.history[state.historyIndex]);
+  showToast('已重做','info',1500);
+}
+
+function jumpToHistory(idx) {
+  if (idx < 0 || idx >= state.history.length) return;
+  state.historyIndex = idx;
+  restoreSnapshot(state.history[idx]);
+}
+
+function restoreSnapshot(snap) {
+  state.nodes = deepClone(snap.nodes);
+  state.edges = deepClone(snap.edges);
+  state.selectedNodes.clear();
+  state.selectedEdge = null;
+  render();
+  updateLayersPanel();
+  updateHistoryPanel();
+  updateRightPanel();
+  // Recalibrate id counters
+  state.nodes.forEach(n => {
+    const num = parseInt(n.id.replace('n',''));
+    if (num > state.nodeIdCounter) state.nodeIdCounter = num;
+  });
+  state.edges.forEach(e => {
+    const num = parseInt(e.id.replace('e',''));
+    if (num > state.edgeIdCounter) state.edgeIdCounter = num;
+  });
+}
+
+// ============================================================
+// SVG / D3 SETUP
+// ============================================================
+const svg = d3.select('#main-svg');
+const graphLayer = svg.select('#graph-layer');
+const edgesLayer = svg.select('#edges-layer');
+const nodesLayer = svg.select('#nodes-layer');
+
+let svgWidth = 0, svgHeight = 0;
+
+function updateSvgSize() {
+  const container = document.getElementById('canvas-container');
+  svgWidth = container.clientWidth;
+  svgHeight = container.clientHeight;
+}
+
+function applyTransform() {
+  const t = state.transform;
+  graphLayer.attr('transform', `translate(${t.x},${t.y}) scale(${t.k})`);
+  updateDotGrid();
+  document.getElementById('zoom-display').textContent = Math.round(t.k * 100) + '%';
+}
+
+function updateDotGrid() {
+  const k = state.transform.k;
+  // Dot grid adapts to zoom
+  let spacing = 24;
+  if (k < 0.4) spacing = 60;
+  else if (k < 0.7) spacing = 40;
+  else if (k > 2) spacing = 16;
+  else if (k > 1.5) spacing = 20;
+
+  const tx = state.transform.x % (spacing * k);
+  const ty = state.transform.y % (spacing * k);
+  const r = Math.max(0.5, Math.min(1.5, k * 0.8));
+
+  svg.select('#dot-grid')
+    .attr('x', tx / k).attr('y', ty / k)
+    .attr('width', spacing).attr('height', spacing);
+  svg.select('#dot-grid circle')
+    .attr('cx', spacing/2).attr('cy', spacing/2).attr('r', r);
+}
+
+// ============================================================
+// NODE SHAPE PATHS
+// ============================================================
+function getNodeShapePath(node, forExport=false) {
+  const r = node.r || 30;
+  const { shape } = node;
+  const cx = forExport ? node.x : 0;
+  const cy = forExport ? node.y : 0;
+  switch(shape) {
+    case 'circle':
+      return null; // use circle element
+    case 'ellipse':
+      return null; // use ellipse element
+    case 'rect':
+      return `M${cx-r},${cy-r*0.65} h${r*2} v${r*1.3} h${-r*2} z`;
+    case 'rounded-rect':
+      const rx = r*0.2;
+      return `M${cx-r+rx},${cy-r*0.65} h${r*2-rx*2} a${rx},${rx} 0 0 1 ${rx},${rx} v${r*1.3-rx*2} a${rx},${rx} 0 0 1 ${-rx},${rx} h${-(r*2-rx*2)} a${rx},${rx} 0 0 1 ${-rx},${-rx} v${-(r*1.3-rx*2)} a${rx},${rx} 0 0 1 ${rx},${-rx} z`;
+    case 'diamond':
+      return `M${cx},${cy-r*0.75} L${cx+r},${cy} L${cx},${cy+r*0.75} L${cx-r},${cy} z`;
+    default:
+      return null;
+  }
+}
+
+// Get bounding box of node (for edge connection points)
+function getNodeBounds(node) {
+  const r = node.r || 30;
+  const shape = node.shape || 'circle';
+  let w = r, h = r;
+  if (shape === 'ellipse') h = r * 0.65;
+  else if (shape === 'rect' || shape === 'rounded-rect') { w = r; h = r * 0.65; }
+  else if (shape === 'diamond') { w = r; h = r * 0.75; }
+  return { x: node.x, y: node.y, w, h };
+}
+
+// Get edge endpoint on node boundary
+function getEdgePoint(fromNode, toNode) {
+  const fb = getNodeBounds(fromNode);
+  const tb = getNodeBounds(toNode);
+  const dx = tb.x - fb.x, dy = tb.y - fb.y;
+  const dist = Math.sqrt(dx*dx + dy*dy) || 1;
+  const ux = dx/dist, uy = dy/dist;
+
+  // Approximate intersection with shape
+  function intersect(node, ux2, uy2) {
+    const r = node.r || 30;
+    const shape = node.shape || 'circle';
+    if (shape === 'ellipse') {
+      const a = r, b = r * 0.65;
+      const t = 1 / Math.sqrt((ux2*ux2)/(a*a) + (uy2*uy2)/(b*b));
+      return { x: node.x + ux2*t, y: node.y + uy2*t };
+    } else if (shape === 'rect' || shape === 'rounded-rect') {
+      const w = r, h = r * 0.65;
+      const t = Math.min(Math.abs(w/ux2)||Infinity, Math.abs(h/uy2)||Infinity);
+      return { x: node.x + ux2*t, y: node.y + uy2*t };
+    } else if (shape === 'diamond') {
+      const a = r, b = r * 0.75;
+      const t = 1 / (Math.abs(ux2)/a + Math.abs(uy2)/b);
+      return { x: node.x + ux2*t, y: node.y + uy2*t };
+    }
+    return { x: node.x + ux2*r, y: node.y + uy2*r };
+  }
+  const src = intersect(fromNode, ux, uy);
+  const tgt = intersect(toNode, -ux, -uy);
+  return { src, tgt };
+}
+
+// ============================================================
+// EDGE PATH CALCULATION
+// ============================================================
+function computeEdgePath(edge) {
+  const src = getNodeById(edge.source);
+  const tgt = getNodeById(edge.target);
+  if (!src || !tgt) return '';
+
+  // Self-loop
+  if (edge.source === edge.target) {
+    const r = src.r || 30;
+    const x = src.x + r * 0.7;
+    const y = src.y - r * 0.7;
+    const loopR = r * 0.6;
+    return `M${src.x + r * 0.4},${src.y - r * 0.4} C${x + loopR},${y - loopR} ${x + loopR},${y + loopR} ${src.x + r * 0.4},${src.y + r * 0.4}`;
+  }
+
+  const pts = getEdgePoint(src, tgt);
+  const { curvature = 0 } = edge;
+
+  if (Math.abs(curvature) < 0.01) {
+    return `M${pts.src.x},${pts.src.y} L${pts.tgt.x},${pts.tgt.y}`;
+  }
+
+  // Quadratic bezier with curvature
+  const mx = (pts.src.x + pts.tgt.x) / 2;
+  const my = (pts.src.y + pts.tgt.y) / 2;
+  const dx = pts.tgt.x - pts.src.x;
+  const dy = pts.tgt.y - pts.src.y;
+  const len = Math.sqrt(dx*dx + dy*dy);
+  const nx = -dy/len, ny = dx/len;
+  const cpx = mx + nx * len * curvature * 0.5;
+  const cpy = my + ny * len * curvature * 0.5;
+  return `M${pts.src.x},${pts.src.y} Q${cpx},${cpy} ${pts.tgt.x},${pts.tgt.y}`;
+}
+
+function getEdgeMidPoint(edge) {
+  const src = getNodeById(edge.source);
+  const tgt = getNodeById(edge.target);
+  if (!src || !tgt) return {x:0,y:0};
+  if (edge.source === edge.target) {
+    const r = src.r || 30;
+    return { x: src.x + r * 1.2, y: src.y - r * 1.2 };
+  }
+  const pts = getEdgePoint(src, tgt);
+  const { curvature = 0 } = edge;
+  if (Math.abs(curvature) < 0.01) {
+    return { x: (pts.src.x + pts.tgt.x)/2, y: (pts.src.y + pts.tgt.y)/2 };
+  }
+  const mx = (pts.src.x + pts.tgt.x) / 2;
+  const my = (pts.src.y + pts.tgt.y) / 2;
+  const dx = pts.tgt.x - pts.src.x, dy = pts.tgt.y - pts.src.y;
+  const len = Math.sqrt(dx*dx + dy*dy);
+  const nx = -dy/len, ny = dx/len;
+  const cpx = mx + nx * len * curvature * 0.5;
+  const cpy = my + ny * len * curvature * 0.5;
+  return { x: (pts.src.x/4 + cpx/2 + pts.tgt.x/4), y: (pts.src.y/4 + cpy/2 + pts.tgt.y/4) };
+}
+
+function getEdgeDashArray(lineStyle, width) {
+  if (lineStyle === 'dashed') return `${width*4},${width*3}`;
+  if (lineStyle === 'dotted') return `${width},${width*2}`;
+  return 'none';
+}
+
+// Get unique marker id for an edge color/arrow
+function getMarkerId(color, dir) {
+  const c = color.replace('#','');
+  return `arrow-${c}-${dir}`;
+}
+
+function ensureMarker(color) {
+  const defs = svg.select('defs');
+  const endId = getMarkerId(color, 'end');
+  const startId = getMarkerId(color, 'start');
+  if (!document.getElementById(endId)) {
+    defs.append('marker')
+      .attr('id', endId)
+      .attr('markerWidth', 8).attr('markerHeight', 8)
+      .attr('refX', 6).attr('refY', 3)
+      .attr('orient', 'auto')
+      .append('path').attr('d','M0,0 L0,6 L8,3 z').attr('fill', color);
+    defs.append('marker')
+      .attr('id', startId)
+      .attr('markerWidth', 8).attr('markerHeight', 8)
+      .attr('refX', 2).attr('refY', 3)
+      .attr('orient', 'auto-start-reverse')
+      .append('path').attr('d','M0,0 L0,6 L8,3 z').attr('fill', color);
+  }
+}
+
+// ============================================================
+// RENDER FUNCTIONS
+// ============================================================
+function render() {
+  renderEdges();
+  renderNodes();
+}
+
+function renderEdges() {
+  const edgeData = state.edges;
+  const sel = edgesLayer.selectAll('.edge-group')
+    .data(edgeData, d => d.id);
+
+  const enter = sel.enter().append('g').attr('class','edge-group');
+  enter.append('path').attr('class','edge-path');
+  enter.append('path').attr('class','edge-hit'); // wider invisible hit area
+  enter.append('text').attr('class','edge-label-text');
+
+  const all = enter.merge(sel);
+
+  all.each(function(edge) {
+    const g = d3.select(this);
+    const path = computeEdgePath(edge);
+    const isSelected = state.selectedEdge === edge.id;
+
+    ensureMarker(edge.color || '#999');
+    const endId = getMarkerId(edge.color, 'end');
+    const startId = getMarkerId(edge.color, 'start');
+    const markerEnd = (edge.arrowMode === 'single' || edge.arrowMode === 'double') ? `url(#${endId})` : null;
+    const markerStart = (edge.arrowMode === 'double') ? `url(#${startId})` : null;
+
+    g.select('.edge-path')
+      .attr('d', path)
+      .attr('stroke', isSelected ? '#4A90D9' : (edge.color || '#999'))
+      .attr('stroke-width', (edge.width || 1.5) + (isSelected ? 1 : 0))
+      .attr('stroke-dasharray', getEdgeDashArray(edge.lineStyle, edge.width || 1.5))
+      .attr('fill', 'none')
+      .attr('marker-end', markerEnd)
+      .attr('marker-start', markerStart)
+      .style('filter', isSelected ? 'drop-shadow(0 0 4px #4A90D9)' : null);
+
+    g.select('.edge-hit')
+      .attr('d', path)
+      .attr('stroke', 'transparent')
+      .attr('stroke-width', 12)
+      .attr('fill', 'none')
+      .attr('cursor', 'pointer')
+      .on('click', (evt) => { evt.stopPropagation(); selectEdge(edge.id); })
+      .on('dblclick', (evt) => { evt.stopPropagation(); startEdgeLabelEdit(edge, evt); })
+      .on('contextmenu', (evt) => { evt.preventDefault(); evt.stopPropagation(); showEdgeContextMenu(edge, evt); });
+
+    // Edge label
+    if (edge.label) {
+      const mid = getEdgeMidPoint(edge);
+      g.select('.edge-label-text')
+        .attr('x', mid.x).attr('y', mid.y)
+        .attr('text-anchor', 'middle')
+        .attr('dominant-baseline', 'central')
+        .attr('font-size', 11)
+        .attr('fill', edge.color || '#999')
+        .attr('font-family', 'Microsoft YaHei')
+        .style('pointer-events', 'none')
+        .text(edge.label);
+    } else {
+      g.select('.edge-label-text').text('');
+    }
+  });
+
+  sel.exit().remove();
+}
+
+function renderNodes() {
+  const nodeData = state.nodes;
+  const sel = nodesLayer.selectAll('.node-group')
+    .data(nodeData, d => d.id);
+
+  const enter = sel.enter().append('g').attr('class','node-group');
+  enter.append('g').attr('class','node-shape-g');
+  enter.append('text').attr('class','node-text');
+  // Connection dots (4 cardinal points)
+  ['n','s','e','w'].forEach(dir => {
+    enter.append('circle').attr('class',`conn-dot conn-${dir}`);
+  });
+
+  const all = enter.merge(sel);
+
+  all.each(function(node) {
+    const g = d3.select(this);
+    const isSelected = state.selectedNodes.has(node.id);
+    const r = node.r || 30;
+    const shape = node.shape || 'circle';
+    const opacity = node.opacity !== undefined ? node.opacity : 1;
+
+    g.attr('transform', `translate(${node.x},${node.y})`)
+      .attr('cursor', 'pointer');
+
+    // Shape
+    const shapeG = g.select('.node-shape-g');
+    shapeG.selectAll('*').remove();
+
+    let shapeEl;
+    if (shape === 'circle') {
+      shapeEl = shapeG.append('circle')
+        .attr('r', r)
+        .attr('cx', 0).attr('cy', 0);
+    } else if (shape === 'ellipse') {
+      shapeEl = shapeG.append('ellipse')
+        .attr('rx', r).attr('ry', r * 0.65)
+        .attr('cx', 0).attr('cy', 0);
+    } else {
+      const path = getNodeShapePath(node);
+      shapeEl = shapeG.append('path').attr('d', path);
+    }
+
+    shapeEl
+      .attr('fill', node.fill || '#4A90D9')
+      .attr('fill-opacity', opacity)
+      .attr('stroke', isSelected ? '#4A90D9' : (node.stroke || '#2C6FAC'))
+      .attr('stroke-width', isSelected ? Math.max(node.strokeWidth||2, 3) : (node.strokeWidth || 2))
+      .style('filter', isSelected ? 'drop-shadow(0 0 6px #4A90D9)' : 'url(#shadow)');
+
+    if (isSelected) {
+      // Add selection indicator ring
+      if (shape === 'circle') {
+        shapeG.append('circle').attr('r', r+4).attr('cx',0).attr('cy',0)
+          .attr('fill','none').attr('stroke','#4A90D9').attr('stroke-width',1.5)
+          .attr('stroke-dasharray','4,3').attr('opacity',0.8);
+      }
+    }
+
+    // Node text with line wrapping
+    const textEl = g.select('.node-text');
+    textEl.selectAll('*').remove();
+    const lines = (node.label || '').split('\\n');
+    const lineH = (node.fontSize || 14) * 1.3;
+    const totalH = lines.length * lineH;
+    const maxWidth = r * (shape === 'diamond' ? 1.2 : 1.7);
+
+    lines.forEach((line, i) => {
+      const tspan = textEl.append('tspan')
+        .attr('x', 0)
+        .attr('y', 0)
+        .attr('dy', (i * lineH) - totalH/2 + lineH/2 + 'px')
+        .attr('text-anchor', 'middle')
+        .attr('dominant-baseline', 'central')
+        .text(truncateText(line, maxWidth, node.fontSize || 14, node.fontFamily || 'Microsoft YaHei'));
+    });
+
+    textEl
+      .attr('font-size', node.fontSize || 14)
+      .attr('font-family', node.fontFamily || 'Microsoft YaHei')
+      .attr('fill', node.fontColor || '#FFFFFF')
+      .attr('font-weight', node.bold ? 'bold' : 'normal')
+      .attr('font-style', node.italic ? 'italic' : 'normal')
+      .style('pointer-events', 'none')
+      .style('user-select', 'none');
+
+    // Connection dots
+    g.select('.conn-n').attr('cx',0).attr('cy',-r).attr('r',5)
+      .attr('fill','#4A90D9').attr('stroke','white').attr('stroke-width',1.5);
+    g.select('.conn-s').attr('cx',0).attr('cy',r).attr('r',5)
+      .attr('fill','#4A90D9').attr('stroke','white').attr('stroke-width',1.5);
+    g.select('.conn-e').attr('cx',r).attr('cy',0).attr('r',5)
+      .attr('fill','#4A90D9').attr('stroke','white').attr('stroke-width',1.5);
+    g.select('.conn-w').attr('cx',-r).attr('cy',0).attr('r',5)
+      .attr('fill','#4A90D9').attr('stroke','white').attr('stroke-width',1.5);
+
+    // Event listeners
+    setupNodeEvents(g, node);
+  });
+
+  sel.exit().remove();
+}
+
+function truncateText(text, maxWidth, fontSize, fontFamily) {
+  // Estimate: average char width ≈ fontSize * 0.6 for CJK, 0.5 for latin
+  const avgW = fontSize * 0.65;
+  const maxChars = Math.floor(maxWidth / avgW);
+  if (!text) return '';
+  if (text.length <= maxChars) return text;
+  return text.slice(0, maxChars - 1) + '…';
+}
+
+// ============================================================
+// NODE EVENTS
+// ============================================================
+let clickTimer = null;
+let isDraggingNode = false;
+let dragStartPos = {};
+let dragNodePos = {};
+
+function setupNodeEvents(g, node) {
+  const nodeEl = g.node();
+  // Remove old listeners
+  g.on('mousedown', null).on('mouseover', null).on('mouseout', null)
+   .on('contextmenu', null);
+
+  g.on('mouseover', function(evt) {
+    // Show conn dots
+    g.selectAll('.conn-dot').style('opacity', 1);
+    // Show tooltip if text truncated
+    const r = node.r || 30;
+    const shape = node.shape || 'circle';
+    const maxWidth = r * (shape === 'diamond' ? 1.2 : 1.7);
+    const avgW = (node.fontSize || 14) * 0.65;
+    const maxChars = Math.floor(maxWidth / avgW);
+    if ((node.label || '').length > maxChars) {
+      const tip = document.getElementById('tooltip');
+      tip.textContent = node.label;
+      tip.style.display = 'block';
+      tip.style.left = (evt.clientX + 12) + 'px';
+      tip.style.top = (evt.clientY - 10) + 'px';
+    }
+  })
+  .on('mousemove', function(evt) {
+    const tip = document.getElementById('tooltip');
+    if (tip.style.display === 'block') {
+      tip.style.left = (evt.clientX + 12) + 'px';
+      tip.style.top = (evt.clientY - 10) + 'px';
+    }
+  })
+  .on('mouseout', function() {
+    g.selectAll('.conn-dot').style('opacity', 0);
+    document.getElementById('tooltip').style.display = 'none';
+  })
+  .on('contextmenu', function(evt) {
+    evt.preventDefault();
+    evt.stopPropagation();
+    showNodeContextMenu(node, evt);
+  })
+  .on('mousedown', function(evt) {
+    if (evt.button === 2) return;
+    evt.stopPropagation();
+
+    // Check if clicking on conn dot
+    const target = evt.target;
+    if (target.classList.contains('conn-dot')) {
+      startConnecting(node, evt);
+      return;
+    }
+
+    // Detect double-click
+    if (clickTimer) {
+      clearTimeout(clickTimer);
+      clickTimer = null;
+      startNodeEdit(node, g);
+      return;
+    }
+    clickTimer = setTimeout(() => {
+      clickTimer = null;
+      // Single click: select
+      if (!state.isDraggingNode) {
+        if (evt.ctrlKey || evt.metaKey) {
+          // Multi-select
+          if (state.selectedNodes.has(node.id)) state.selectedNodes.delete(node.id);
+          else state.selectedNodes.add(node.id);
+        } else {
+          if (!state.selectedNodes.has(node.id)) {
+            state.selectedNodes.clear();
+            state.selectedNodes.add(node.id);
+          }
+        }
+        state.selectedEdge = null;
+        render();
+        updateRightPanel();
+        updateLayersPanel();
+      }
+    }, 220);
+
+    // Start drag
+    isDraggingNode = false;
+    const svgPt = screenToGraph(evt.clientX, evt.clientY);
+    dragStartPos = { x: svgPt.x, y: svgPt.y };
+
+    // Capture positions of all selected nodes (or just this one)
+    if (!state.selectedNodes.has(node.id)) {
+      state.selectedNodes.clear();
+      state.selectedNodes.add(node.id);
+      state.selectedEdge = null;
+      render();
+      updateRightPanel();
+    }
+    dragNodePos = {};
+    state.selectedNodes.forEach(nid => {
+      const n = getNodeById(nid);
+      if (n) dragNodePos[nid] = { x: n.x, y: n.y };
+    });
+
+    const onMove = (e) => {
+      const pt = screenToGraph(e.clientX, e.clientY);
+      const dx = pt.x - dragStartPos.x;
+      const dy = pt.y - dragStartPos.y;
+      if (!isDraggingNode && (Math.abs(dx) > 3 || Math.abs(dy) > 3)) {
+        isDraggingNode = true;
+        state.isDraggingNode = true;
+      }
+      if (isDraggingNode) {
+        state.selectedNodes.forEach(nid => {
+          const n = getNodeById(nid);
+          if (n && dragNodePos[nid]) {
+            n.x = dragNodePos[nid].x + dx;
+            n.y = dragNodePos[nid].y + dy;
+          }
+        });
+        render();
+      }
+    };
+
+    const onUp = (e) => {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      if (isDraggingNode) {
+        saveHistory('移动节点');
+        isDraggingNode = false;
+        state.isDraggingNode = false;
+        render();
+      }
+    };
+
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  });
+
+  // Conn dot events
+  g.selectAll('.conn-dot').style('opacity', 0)
+    .on('mousedown', function(evt) {
+      evt.stopPropagation();
+      startConnecting(node, evt);
+    });
+}
+
+function startConnecting(sourceNode, evt) {
+  state.isConnecting = true;
+  state.connectSource = sourceNode;
+  document.getElementById('main-svg').classList.add('connecting');
+
+  const connectLine = graphLayer.append('line')
+    .attr('class','connect-line-preview')
+    .attr('stroke','#4A90D9').attr('stroke-width',1.5)
+    .attr('stroke-dasharray','4,3')
+    .attr('pointer-events','none')
+    .attr('x1', sourceNode.x).attr('y1', sourceNode.y)
+    .attr('x2', sourceNode.x).attr('y2', sourceNode.y);
+
+  const onMove = (e) => {
+    const pt = screenToGraph(e.clientX, e.clientY);
+    connectLine.attr('x2', pt.x).attr('y2', pt.y);
+  };
+
+  const onUp = (e) => {
+    document.removeEventListener('mousemove', onMove);
+    document.removeEventListener('mouseup', onUp);
+    connectLine.remove();
+    state.isConnecting = false;
+    document.getElementById('main-svg').classList.remove('connecting');
+
+    const pt = screenToGraph(e.clientX, e.clientY);
+    // Find target node
+    let targetNode = null;
+    for (const n of state.nodes) {
+      if (n.id !== sourceNode.id && pointInNode(n, pt.x, pt.y)) {
+        targetNode = n;
+        break;
+      }
+    }
+    if (targetNode) {
+      addEdge(sourceNode.id, targetNode.id);
+    }
+    state.connectSource = null;
+  };
+
+  document.addEventListener('mousemove', onMove);
+  document.addEventListener('mouseup', onUp);
+}
+
+// ============================================================
+// SCREEN <-> GRAPH COORDINATES
+// ============================================================
+function screenToGraph(sx, sy) {
+  const container = document.getElementById('canvas-container');
+  const rect = container.getBoundingClientRect();
+  const cx = sx - rect.left;
+  const cy = sy - rect.top;
+  return {
+    x: (cx - state.transform.x) / state.transform.k,
+    y: (cy - state.transform.y) / state.transform.k
+  };
+}
+
+function graphToScreen(gx, gy) {
+  const container = document.getElementById('canvas-container');
+  const rect = container.getBoundingClientRect();
+  return {
+    x: gx * state.transform.k + state.transform.x + rect.left,
+    y: gy * state.transform.k + state.transform.y + rect.top
+  };
+}
+
+// ============================================================
+// CANVAS PAN / ZOOM
+// ============================================================
+function setupCanvasEvents() {
+  const container = document.getElementById('canvas-container');
+  const svgEl = document.getElementById('main-svg');
+
+  // Wheel zoom
+  container.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    const delta = e.deltaY < 0 ? 1.1 : 0.91;
+    const rect = container.getBoundingClientRect();
+    const cx = e.clientX - rect.left;
+    const cy = e.clientY - rect.top;
+    const k0 = state.transform.k;
+    const k1 = Math.min(4, Math.max(0.1, k0 * delta));
+    state.transform.x = cx - (cx - state.transform.x) * (k1/k0);
+    state.transform.y = cy - (cy - state.transform.y) * (k1/k0);
+    state.transform.k = k1;
+    applyTransform();
+  }, { passive: false });
+
+  // Mouse events on SVG background
+  svgEl.addEventListener('mousedown', (e) => {
+    if (e.target.closest('.node-group') || e.target.closest('.edge-group')) return;
+    if (e.button === 1 || (e.button === 0 && state.spaceDown)) {
+      // Pan
+      state.isPanning = true;
+      svgEl.classList.add('panning');
+      const sx = e.clientX, sy = e.clientY;
+      const tx0 = state.transform.x, ty0 = state.transform.y;
+      const onMove = (e2) => {
+        state.transform.x = tx0 + (e2.clientX - sx);
+        state.transform.y = ty0 + (e2.clientY - sy);
+        applyTransform();
+      };
+      const onUp = () => {
+        state.isPanning = false;
+        svgEl.classList.remove('panning');
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+      };
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+      e.preventDefault();
+      return;
+    }
+
+    if (e.button === 0) {
+      // Rubber band selection
+      const rect = container.getBoundingClientRect();
+      const x0 = e.clientX - rect.left;
+      const y0 = e.clientY - rect.top;
+      state.rubberBand = { active: true, x0, y0 };
+      const rb = document.getElementById('rubber-band');
+      rb.style.display = 'block';
+      rb.style.left = x0 + 'px'; rb.style.top = y0 + 'px';
+      rb.style.width = '0'; rb.style.height = '0';
+
+      const onMove = (e2) => {
+        const cx = e2.clientX - rect.left;
+        const cy = e2.clientY - rect.top;
+        const x = Math.min(x0, cx), y = Math.min(y0, cy);
+        const w = Math.abs(cx - x0), h = Math.abs(cy - y0);
+        rb.style.left = x + 'px'; rb.style.top = y + 'px';
+        rb.style.width = w + 'px'; rb.style.height = h + 'px';
+      };
+      const onUp = (e2) => {
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+        rb.style.display = 'none';
+        const rect2 = container.getBoundingClientRect();
+        const cx = e2.clientX - rect2.left;
+        const cy = e2.clientY - rect2.top;
+        const sx1 = Math.min(x0, cx), sx2 = Math.max(x0, cx);
+        const sy1 = Math.min(y0, cy), sy2 = Math.max(y0, cy);
+        if (Math.abs(sx2-sx1) < 5 && Math.abs(sy2-sy1) < 5) {
+          // Just a click on blank = deselect all
+          state.selectedNodes.clear();
+          state.selectedEdge = null;
+          render();
+          updateRightPanel();
+          updateLayersPanel();
+          return;
+        }
+        // Select nodes in rubber band
+        const g1 = screenToGraph(sx1 + rect2.left, sy1 + rect2.top);
+        const g2 = screenToGraph(sx2 + rect2.left, sy2 + rect2.top);
+        if (!e2.ctrlKey) state.selectedNodes.clear();
+        state.nodes.forEach(n => {
+          if (n.x >= g1.x && n.x <= g2.x && n.y >= g1.y && n.y <= g2.y) {
+            state.selectedNodes.add(n.id);
+          }
+        });
+        state.selectedEdge = null;
+        render();
+        updateRightPanel();
+        updateLayersPanel();
+      };
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+    }
+  });
+}
+
+// ============================================================
+// NODE CONTEXT MENU
+// ============================================================
+let ctxTarget = null;
+
+function showNodeContextMenu(node, evt) {
+  ctxTarget = { type: 'node', data: node };
+  const menu = document.getElementById('context-menu');
+  document.querySelectorAll('.ctx-edge-only').forEach(el => el.style.display='none');
+  document.getElementById('ctx-delete').style.display='flex';
+  document.getElementById('ctx-copy').style.display='flex';
+  document.getElementById('ctx-subtree').style.display='flex';
+  document.getElementById('ctx-reverse').style.display='none';
+  document.getElementById('ctx-edge-delete').style.display='none';
+
+  if (!state.selectedNodes.has(node.id)) {
+    state.selectedNodes.clear();
+    state.selectedNodes.add(node.id);
+    render();
+    updateRightPanel();
+  }
+  menu.style.display = 'block';
+  menu.style.left = evt.clientX + 'px';
+  menu.style.top = evt.clientY + 'px';
+}
+
+function showEdgeContextMenu(edge, evt) {
+  ctxTarget = { type: 'edge', data: edge };
+  const menu = document.getElementById('context-menu');
+  document.getElementById('ctx-delete').style.display='none';
+  document.getElementById('ctx-copy').style.display='none';
+  document.getElementById('ctx-subtree').style.display='none';
+  document.getElementById('ctx-reverse').style.display='none';
+  document.getElementById('ctx-edge-delete').style.display='flex';
+  menu.style.display = 'block';
+  menu.style.left = evt.clientX + 'px';
+  menu.style.top = evt.clientY + 'px';
+}
+
+function hideContextMenu() {
+  document.getElementById('context-menu').style.display = 'none';
+  ctxTarget = null;
+}
+
+// ============================================================
+// NODE INLINE EDIT
+// ============================================================
+let editingNode = null;
+let editFO = null;
+
+function startNodeEdit(node, g) {
+  if (editingNode) finishNodeEdit();
+  editingNode = node;
+
+  const r = node.r || 30;
+  // Create foreignObject for textarea
+  const fo = graphLayer.append('foreignObject')
+    .attr('class','node-edit-fo')
+    .attr('x', node.x - r)
+    .attr('y', node.y - r * 0.6)
+    .attr('width', r * 2)
+    .attr('height', r * 1.2);
+
+  const ta = fo.append('xhtml:textarea')
+    .style('width','100%').style('height','100%')
+    .style('background','rgba(20,40,80,0.95)')
+    .style('border','2px solid #4A90D9')
+    .style('border-radius','4px')
+    .style('color', node.fontColor || '#fff')
+    .style('font-size', (node.fontSize||14) + 'px')
+    .style('font-family', node.fontFamily || 'Microsoft YaHei')
+    .style('text-align','center')
+    .style('padding','4px')
+    .style('resize','none')
+    .style('outline','none')
+    .style('z-index','1000')
+    .property('value', node.label || '');
+
+  editFO = fo;
+  // Focus
+  setTimeout(() => {
+    const taEl = ta.node();
+    taEl.focus();
+    taEl.select();
+  }, 50);
+
+  ta.on('blur', () => finishNodeEdit())
+    .on('keydown', (evt) => {
+      if (evt.key === 'Enter' && !evt.altKey) { finishNodeEdit(); evt.preventDefault(); }
+      else if (evt.key === 'Escape') { cancelNodeEdit(); }
+    });
+}
+
+function finishNodeEdit() {
+  if (!editingNode || !editFO) return;
+  const ta = editFO.select('textarea');
+  const newLabel = ta.property('value');
+  if (newLabel !== editingNode.label) {
+    editingNode.label = newLabel;
+    saveHistory('编辑节点文字');
+  }
+  editFO.remove();
+  editFO = null;
+  editingNode = null;
+  render();
+  updateLayersPanel();
+  updateRightPanel();
+}
+
+function cancelNodeEdit() {
+  if (editFO) { editFO.remove(); editFO = null; }
+  editingNode = null;
+  render();
+}
+
+// ============================================================
+// EDGE LABEL EDIT
+// ============================================================
+function startEdgeLabelEdit(edge, evt) {
+  const mid = getEdgeMidPoint(edge);
+  const screenPt = graphToScreen(mid.x, mid.y);
+  const container = document.getElementById('canvas-container');
+  const rect = container.getBoundingClientRect();
+
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.className = 'edge-label-input';
+  input.value = edge.label || '';
+  input.style.left = (screenPt.x - rect.left - 40) + 'px';
+  input.style.top = (screenPt.y - rect.top - 12) + 'px';
+  input.style.position = 'absolute';
+  container.appendChild(input);
+  input.focus();
+  input.select();
+
+  const finish = () => {
+    if (input.value !== edge.label) {
+      edge.label = input.value;
+      saveHistory('编辑边标签');
+      render();
+    }
+    input.remove();
+  };
+  input.addEventListener('blur', finish);
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { finish(); }
+    else if (e.key === 'Escape') { input.remove(); }
+  });
+}
+
+// ============================================================
+// NODE / EDGE OPERATIONS
+// ============================================================
+function addNode(x, y, label='新节点') {
+  const id = genId('n');
+  const node = {
+    id, label, x: x || 400, y: y || 300,
+    r: 35, shape: 'circle',
+    fill: '#4A90D9', stroke: '#2C6FAC', strokeWidth: 2,
+    fontSize: 14, fontFamily: 'Microsoft YaHei',
+    fontColor: '#FFFFFF', bold: false, italic: false, opacity: 1
+  };
+  state.nodes.push(node);
+  state.selectedNodes.clear();
+  state.selectedNodes.add(id);
+  state.selectedEdge = null;
+  saveHistory('添加节点');
+  render();
+  updateLayersPanel();
+  updateRightPanel();
+  return node;
+}
+
+function addEdge(sourceId, targetId) {
+  // Check duplicate
+  const exists = state.edges.find(e => e.source === sourceId && e.target === targetId);
+  if (exists) { showToast('该方向的连线已存在','warning'); return; }
+  const id = genId('e');
+  const edge = {
+    id, source: sourceId, target: targetId,
+    color: '#999', width: 1.5, arrowMode: 'single',
+    lineStyle: 'solid', curvature: 0, label: ''
+  };
+  state.edges.push(edge);
+  saveHistory('添加连线');
+  render();
+  showToast('已添加连线','success',1500);
+  return edge;
+}
+
+function deleteNode(nodeId) {
+  state.nodes = state.nodes.filter(n => n.id !== nodeId);
+  state.edges = state.edges.filter(e => e.source !== nodeId && e.target !== nodeId);
+  state.selectedNodes.delete(nodeId);
+  if (state.selectedNodes.size === 0) {
+    saveHistory('删除节点');
+    render();
+    updateLayersPanel();
+    updateRightPanel();
+  }
+}
+
+function deleteSelectedNodes() {
+  if (state.selectedNodes.size === 0) return;
+  state.selectedNodes.forEach(nid => {
+    state.nodes = state.nodes.filter(n => n.id !== nid);
+    state.edges = state.edges.filter(e => e.source !== nid && e.target !== nid);
+  });
+  state.selectedNodes.clear();
+  saveHistory('删除节点');
+  render();
+  updateLayersPanel();
+  updateRightPanel();
+}
+
+function deleteEdge(edgeId) {
+  state.edges = state.edges.filter(e => e.id !== edgeId);
+  if (state.selectedEdge === edgeId) state.selectedEdge = null;
+  saveHistory('删除连线');
+  render();
+  updateRightPanel();
+}
+
+function selectEdge(edgeId) {
+  state.selectedNodes.clear();
+  state.selectedEdge = edgeId;
+  render();
+  updateRightPanel();
+  updateLayersPanel();
+}
+
+function selectSubtree(rootId) {
+  const visited = new Set();
+  const queue = [rootId];
+  while (queue.length > 0) {
+    const curr = queue.shift();
+    if (visited.has(curr)) continue;
+    visited.add(curr);
+    state.edges.forEach(e => {
+      if (e.source === curr && !visited.has(e.target)) queue.push(e.target);
+    });
+  }
+  state.selectedNodes = visited;
+  render();
+  updateRightPanel();
+  updateLayersPanel();
+  showToast(`已选中 ${visited.size} 个节点`, 'success', 2000);
+}
+
+function copySelectedNodes() {
+  if (state.selectedNodes.size === 0) return;
+  const newIds = {};
+  const newNodes = [];
+  state.selectedNodes.forEach(nid => {
+    const n = getNodeById(nid);
+    if (n) {
+      const newId = genId('n');
+      newIds[nid] = newId;
+      newNodes.push({ ...deepClone(n), id: newId, x: n.x + 40, y: n.y + 40 });
+    }
+  });
+  newNodes.forEach(n => state.nodes.push(n));
+  // Copy internal edges
+  state.edges.forEach(e => {
+    if (newIds[e.source] && newIds[e.target]) {
+      state.edges.push({ ...deepClone(e), id: genId('e'), source: newIds[e.source], target: newIds[e.target] });
+    }
+  });
+  state.selectedNodes.clear();
+  newNodes.forEach(n => state.selectedNodes.add(n.id));
+  saveHistory('复制节点');
+  render();
+  updateLayersPanel();
+  updateRightPanel();
+  showToast(`已复制 ${newNodes.length} 个节点`, 'success', 1500);
+}
+
+function reverseEdgesOfSelected() {
+  state.selectedNodes.forEach(nid => {
+    state.edges.forEach(e => {
+      if (e.source === nid || e.target === nid) {
+        [e.source, e.target] = [e.target, e.source];
+      }
+    });
+  });
+  saveHistory('反转连线');
+  render();
+  showToast('已反转选中节点的连线', 'success', 1500);
+}
+
+// ============================================================
+// RIGHT PANEL (Properties)
+// ============================================================
+function updateRightPanel() {
+  const panel = document.getElementById('right-panel');
+  const nodePanel = document.getElementById('rp-node-panel');
+  const edgePanel = document.getElementById('rp-edge-panel');
+
+  if (state.selectedNodes.size === 1) {
+    const nodeId = [...state.selectedNodes][0];
+    const node = getNodeById(nodeId);
+    if (!node) { panel.classList.add('hidden'); return; }
+    panel.classList.remove('hidden');
+    nodePanel.style.display = 'block';
+    edgePanel.style.display = 'none';
+    fillNodePanel(node);
+  } else if (state.selectedNodes.size > 1) {
+    panel.classList.remove('hidden');
+    nodePanel.style.display = 'block';
+    edgePanel.style.display = 'none';
+    fillMultiNodePanel();
+  } else if (state.selectedEdge) {
+    const edge = getEdgeById(state.selectedEdge);
+    if (!edge) { panel.classList.add('hidden'); return; }
+    panel.classList.remove('hidden');
+    nodePanel.style.display = 'none';
+    edgePanel.style.display = 'block';
+    fillEdgePanel(edge);
+  } else {
+    panel.classList.add('hidden');
+  }
+}
+
+function fillNodePanel(node) {
+  document.getElementById('rp-label').value = node.label || '';
+  document.getElementById('rp-font').value = node.fontFamily || 'Microsoft YaHei';
+  document.getElementById('rp-fontsize').value = node.fontSize || 14;
+  document.getElementById('rp-fontsize-val').textContent = node.fontSize || 14;
+  document.getElementById('rp-fontcolor').value = node.fontColor || '#ffffff';
+  document.getElementById('rp-bold').classList.toggle('active', !!node.bold);
+  document.getElementById('rp-italic').classList.toggle('active', !!node.italic);
+  document.querySelectorAll('.shape-btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.shape === (node.shape || 'circle'));
+  });
+  document.getElementById('rp-size').value = node.r || 30;
+  document.getElementById('rp-size-val').textContent = node.r || 30;
+  document.getElementById('rp-fill').value = node.fill || '#4A90D9';
+  document.getElementById('rp-opacity').value = Math.round((node.opacity ?? 1) * 100);
+  document.getElementById('rp-opacity-val').textContent = Math.round((node.opacity ?? 1) * 100);
+  document.getElementById('rp-stroke').value = node.stroke || '#2C6FAC';
+  document.getElementById('rp-strokewidth').value = node.strokeWidth ?? 2;
+  document.getElementById('rp-strokewidth-val').textContent = node.strokeWidth ?? 2;
+}
+
+function fillMultiNodePanel() {
+  document.getElementById('rp-label').value = '(多选)';
+  document.getElementById('rp-label').disabled = true;
+  // Only show color controls for multi-select
+}
+
+function fillEdgePanel(edge) {
+  document.getElementById('rp-edge-color').value = edge.color || '#999999';
+  document.getElementById('rp-edge-width').value = edge.width || 1.5;
+  document.getElementById('rp-edge-width-val').textContent = edge.width || 1.5;
+  document.getElementById('rp-edge-arrow').value = edge.arrowMode || 'single';
+  document.getElementById('rp-edge-style').value = edge.lineStyle || 'solid';
+  document.getElementById('rp-edge-curve').value = edge.curvature || 0;
+  document.getElementById('rp-edge-curve-val').textContent = (edge.curvature || 0).toFixed(2);
+  document.getElementById('rp-edge-label').value = edge.label || '';
+}
+
+function setupRightPanelEvents() {
+  // Node label
+  document.getElementById('rp-label').addEventListener('input', function() {
+    if (state.selectedNodes.size !== 1) return;
+    const node = getNodeById([...state.selectedNodes][0]);
+    if (!node) return;
+    node.label = this.value;
+    render();
+    updateLayersPanel();
+  });
+  document.getElementById('rp-label').addEventListener('change', () => saveHistory('修改标签'));
+
+  // Font family
+  document.getElementById('rp-font').addEventListener('change', function() {
+    applyToSelected(n => n.fontFamily = this.value);
+    saveHistory('修改字体');
+    render();
+  });
+
+  // Font size
+  document.getElementById('rp-fontsize').addEventListener('input', function() {
+    document.getElementById('rp-fontsize-val').textContent = this.value;
+    applyToSelected(n => n.fontSize = +this.value);
+    render();
+  });
+  document.getElementById('rp-fontsize').addEventListener('change', () => saveHistory('修改字号'));
+
+  // Font color
+  document.getElementById('rp-fontcolor').addEventListener('input', function() {
+    applyToSelected(n => n.fontColor = this.value);
+    render();
+  });
+  document.getElementById('rp-fontcolor').addEventListener('change', () => saveHistory('修改字色'));
+
+  // Bold / italic
+  document.getElementById('rp-bold').addEventListener('click', function() {
+    this.classList.toggle('active');
+    applyToSelected(n => n.bold = this.classList.contains('active'));
+    saveHistory('修改粗体');
+    render();
+  });
+  document.getElementById('rp-italic').addEventListener('click', function() {
+    this.classList.toggle('active');
+    applyToSelected(n => n.italic = this.classList.contains('active'));
+    saveHistory('修改斜体');
+    render();
+  });
+
+  // Shape buttons
+  document.querySelectorAll('.shape-btn').forEach(btn => {
+    btn.addEventListener('click', function() {
+      document.querySelectorAll('.shape-btn').forEach(b => b.classList.remove('active'));
+      this.classList.add('active');
+      applyToSelected(n => n.shape = this.dataset.shape);
+      saveHistory('修改形状');
+      render();
+    });
+  });
+
+  // Node size
+  document.getElementById('rp-size').addEventListener('input', function() {
+    document.getElementById('rp-size-val').textContent = this.value;
+    applyToSelected(n => n.r = +this.value);
+    render();
+  });
+  document.getElementById('rp-size').addEventListener('change', () => saveHistory('修改大小'));
+
+  // Fill color
+  document.getElementById('rp-fill').addEventListener('input', function() {
+    applyToSelected(n => n.fill = this.value);
+    render();
+  });
+  document.getElementById('rp-fill').addEventListener('change', () => saveHistory('修改填充色'));
+
+  // Opacity
+  document.getElementById('rp-opacity').addEventListener('input', function() {
+    document.getElementById('rp-opacity-val').textContent = this.value;
+    applyToSelected(n => n.opacity = +this.value / 100);
+    render();
+  });
+  document.getElementById('rp-opacity').addEventListener('change', () => saveHistory('修改透明度'));
+
+  // Stroke color
+  document.getElementById('rp-stroke').addEventListener('input', function() {
+    applyToSelected(n => n.stroke = this.value);
+    render();
+  });
+  document.getElementById('rp-stroke').addEventListener('change', () => saveHistory('修改描边色'));
+
+  // Stroke width
+  document.getElementById('rp-strokewidth').addEventListener('input', function() {
+    document.getElementById('rp-strokewidth-val').textContent = this.value;
+    applyToSelected(n => n.strokeWidth = +this.value);
+    render();
+  });
+  document.getElementById('rp-strokewidth').addEventListener('change', () => saveHistory('修改描边宽度'));
+
+  // Delete node
+  document.getElementById('rp-delete-node').addEventListener('click', async () => {
+    const confirmed = await showConfirm('删除节点', `确定要删除选中的 ${state.selectedNodes.size} 个节点吗？`);
+    if (confirmed) deleteSelectedNodes();
+  });
+
+  // Edge color
+  document.getElementById('rp-edge-color').addEventListener('input', function() {
+    const edge = getEdgeById(state.selectedEdge);
+    if (edge) { edge.color = this.value; render(); }
+  });
+  document.getElementById('rp-edge-color').addEventListener('change', () => saveHistory('修改边颜色'));
+
+  // Edge width
+  document.getElementById('rp-edge-width').addEventListener('input', function() {
+    document.getElementById('rp-edge-width-val').textContent = this.value;
+    const edge = getEdgeById(state.selectedEdge);
+    if (edge) { edge.width = +this.value; render(); }
+  });
+  document.getElementById('rp-edge-width').addEventListener('change', () => saveHistory('修改边宽'));
+
+  // Arrow mode
+  document.getElementById('rp-edge-arrow').addEventListener('change', function() {
+    const edge = getEdgeById(state.selectedEdge);
+    if (edge) { edge.arrowMode = this.value; saveHistory('修改箭头'); render(); }
+  });
+
+  // Line style
+  document.getElementById('rp-edge-style').addEventListener('change', function() {
+    const edge = getEdgeById(state.selectedEdge);
+    if (edge) { edge.lineStyle = this.value; saveHistory('修改线型'); render(); }
+  });
+
+  // Curvature
+  document.getElementById('rp-edge-curve').addEventListener('input', function() {
+    document.getElementById('rp-edge-curve-val').textContent = (+this.value).toFixed(2);
+    const edge = getEdgeById(state.selectedEdge);
+    if (edge) { edge.curvature = +this.value; render(); }
+  });
+  document.getElementById('rp-edge-curve').addEventListener('change', () => saveHistory('修改曲率'));
+
+  // Edge label
+  document.getElementById('rp-edge-label').addEventListener('input', function() {
+    const edge = getEdgeById(state.selectedEdge);
+    if (edge) { edge.label = this.value; render(); }
+  });
+  document.getElementById('rp-edge-label').addEventListener('change', () => saveHistory('修改边标签'));
+
+  // Edge reverse
+  document.getElementById('rp-edge-reverse').addEventListener('click', () => {
+    const edge = getEdgeById(state.selectedEdge);
+    if (edge) {
+      [edge.source, edge.target] = [edge.target, edge.source];
+      saveHistory('反转边方向');
+      render();
+      showToast('已反转边方向','success',1500);
+    }
+  });
+
+  // Edge delete
+  document.getElementById('rp-delete-edge').addEventListener('click', async () => {
+    const confirmed = await showConfirm('删除连线', '确定要删除这条连线吗？');
+    if (confirmed) deleteEdge(state.selectedEdge);
+  });
+}
+
+function applyToSelected(fn) {
+  state.selectedNodes.forEach(nid => {
+    const n = getNodeById(nid);
+    if (n) fn(n);
+  });
+}
+
+// ============================================================
+// LEFT PANEL - LAYERS
+// ============================================================
+function updateLayersPanel() {
+  const container = document.getElementById('layers-content');
+  container.innerHTML = '';
+  state.nodes.forEach(node => {
+    const div = document.createElement('div');
+    div.className = 'layer-item' + (state.selectedNodes.has(node.id) ? ' selected' : '');
+    div.innerHTML = `
+      <div style="width:10px;height:10px;border-radius:50%;background:${node.fill||'#4A90D9'};flex-shrink:0"></div>
+      <span class="layer-item-label" title="${node.label||''}">${node.label||'(无标签)'}</span>
+      <i class="fa fa-eye layer-item-icon" title="切换可见性"></i>
+      <i class="fa fa-trash layer-item-icon" style="color:var(--danger)" title="删除"></i>
+    `;
+    div.querySelector('.layer-item-label').addEventListener('click', () => {
+      state.selectedNodes.clear();
+      state.selectedNodes.add(node.id);
+      state.selectedEdge = null;
+      render();
+      updateRightPanel();
+      updateLayersPanel();
+      // Center view on node
+      centerOnNode(node);
+    });
+    div.querySelector('.fa-trash').addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const ok = await showConfirm('删除节点', `确定删除"${node.label}"？`);
+      if (ok) { deleteNode(node.id); saveHistory('删除节点'); render(); updateLayersPanel(); updateRightPanel(); }
+    });
+    container.appendChild(div);
+  });
+}
+
+function centerOnNode(node) {
+  updateSvgSize();
+  state.transform.x = svgWidth/2 - node.x * state.transform.k;
+  state.transform.y = svgHeight/2 - node.y * state.transform.k;
+  applyTransform();
+}
+
+// ============================================================
+// LEFT PANEL - HISTORY
+// ============================================================
+function updateHistoryPanel() {
+  const container = document.getElementById('history-content');
+  container.innerHTML = '';
+  state.history.forEach((snap, i) => {
+    const div = document.createElement('div');
+    div.className = 'history-item' + (i === state.historyIndex ? ' current' : '');
+    div.textContent = `${i+1}. ${snap.desc}`;
+    div.addEventListener('click', () => jumpToHistory(i));
+    container.appendChild(div);
+  });
+  // Scroll to current
+  const current = container.querySelector('.current');
+  if (current) current.scrollIntoView({ block: 'nearest' });
+}
+
+// Panel tab switching
+function setupPanelTabs() {
+  document.querySelectorAll('.panel-tab').forEach(tab => {
+    tab.addEventListener('click', function() {
+      document.querySelectorAll('.panel-tab').forEach(t => t.classList.remove('active'));
+      this.classList.add('active');
+      const tabName = this.dataset.tab;
+      document.getElementById('layers-content').style.display = tabName === 'layers' ? 'block' : 'none';
+      document.getElementById('history-content').style.display = tabName === 'history' ? 'block' : 'none';
+    });
+  });
+}
+
+// ============================================================
+// TOOLBAR EVENTS
+// ============================================================
+function setupToolbar() {
+  // Add node
+  document.getElementById('btn-add-node').addEventListener('click', () => {
+    updateSvgSize();
+    const cx = (svgWidth/2 - state.transform.x) / state.transform.k;
+    const cy = (svgHeight/2 - state.transform.y) / state.transform.k;
+    addNode(cx, cy);
+    showToast('已添加节点','success',1500);
+  });
+
+  // Undo / Redo
+  document.getElementById('btn-undo').addEventListener('click', undo);
+  document.getElementById('btn-redo').addEventListener('click', redo);
+
+  // Remove overlaps
+  document.getElementById('btn-remove-overlaps').addEventListener('click', removeOverlaps);
+
+  // Auto layout
+  document.getElementById('btn-auto-layout').addEventListener('click', async () => {
+    const ok = await showConfirm('自动布局', '力导向布局会重新排列所有节点位置。确定继续吗？');
+    if (ok) runForceLayout();
+  });
+
+  // Color scheme
+  document.getElementById('color-scheme').addEventListener('change', function() {
+    applyColorScheme(this.value);
+  });
+
+  // Import
+  document.getElementById('btn-import').addEventListener('click', () => {
+    document.getElementById('file-input').click();
+  });
+  document.getElementById('file-input').addEventListener('change', function() {
+    const file = this.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const data = JSON.parse(e.target.result);
+        if (data.nodes && data.edges) {
+          state.nodes = data.nodes;
+          state.edges = data.edges;
+          state.selectedNodes.clear();
+          state.selectedEdge = null;
+          saveHistory('导入JSON');
+          render();
+          updateLayersPanel();
+          updateHistoryPanel();
+          updateRightPanel();
+          fitAll();
+          showToast('导入成功','success');
+        } else throw new Error('格式错误');
+      } catch(err) {
+        showToast('导入失败: ' + err.message, 'error');
+      }
+    };
+    reader.readAsText(file);
+    this.value = '';
+  });
+
+  // Export JSON
+  document.getElementById('btn-export-json').addEventListener('click', () => {
+    const data = {
+      nodes: state.nodes.map(n => ({ ...n })),
+      edges: state.edges.map(e => ({ ...e }))
+    };
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = '知识图谱.json';
+    a.click();
+    showToast('已导出JSON','success');
+  });
+
+  // Export image
+  document.getElementById('btn-export-img').addEventListener('click', () => {
+    document.getElementById('modal-overlay').classList.add('open');
+  });
+
+  // Zoom controls
+  document.getElementById('btn-zoom-in').addEventListener('click', () => {
+    updateSvgSize();
+    const k1 = Math.min(4, state.transform.k * 1.2);
+    const cx = svgWidth/2, cy = svgHeight/2;
+    state.transform.x = cx - (cx - state.transform.x) * (k1/state.transform.k);
+    state.transform.y = cy - (cy - state.transform.y) * (k1/state.transform.k);
+    state.transform.k = k1;
+    applyTransform();
+  });
+  document.getElementById('btn-zoom-out').addEventListener('click', () => {
+    updateSvgSize();
+    const k1 = Math.max(0.1, state.transform.k * 0.83);
+    const cx = svgWidth/2, cy = svgHeight/2;
+    state.transform.x = cx - (cx - state.transform.x) * (k1/state.transform.k);
+    state.transform.y = cy - (cy - state.transform.y) * (k1/state.transform.k);
+    state.transform.k = k1;
+    applyTransform();
+  });
+  document.getElementById('zoom-display').addEventListener('click', () => {
+    // Reset to 100%
+    updateSvgSize();
+    state.transform.k = 1;
+    state.transform.x = svgWidth/2;
+    state.transform.y = svgHeight/2;
+    applyTransform();
+  });
+
+  // Theme toggle
+  document.getElementById('btn-theme').addEventListener('click', () => {
+    state.theme = state.theme === 'dark' ? 'light' : 'dark';
+    document.body.classList.toggle('light', state.theme === 'light');
+    document.getElementById('btn-theme').innerHTML = state.theme === 'dark'
+      ? '<i class="fa fa-moon"></i>' : '<i class="fa fa-sun"></i>';
+  });
+
+  // Left panel toggle
+  const leftPanel = document.getElementById('left-panel');
+  const leftToggle = document.getElementById('left-toggle');
+  leftToggle.addEventListener('click', () => {
+    leftPanel.classList.toggle('collapsed');
+    leftToggle.style.left = leftPanel.classList.contains('collapsed') ? '0' : '220px';
+    leftToggle.innerHTML = leftPanel.classList.contains('collapsed')
+      ? '<i class="fa fa-chevron-right"></i>'
+      : '<i class="fa fa-chevron-left"></i>';
+  });
+}
+
+// ============================================================
+// CONTEXT MENU ACTIONS
+// ============================================================
+function setupContextMenuEvents() {
+  document.getElementById('ctx-delete').addEventListener('click', () => {
+    if (ctxTarget && ctxTarget.type === 'node') deleteSelectedNodes();
+    hideContextMenu();
+  });
+  document.getElementById('ctx-copy').addEventListener('click', () => {
+    copySelectedNodes();
+    hideContextMenu();
+  });
+  document.getElementById('ctx-subtree').addEventListener('click', () => {
+    if (ctxTarget && ctxTarget.type === 'node') selectSubtree(ctxTarget.data.id);
+    hideContextMenu();
+  });
+  document.getElementById('ctx-reverse').addEventListener('click', () => {
+    reverseEdgesOfSelected();
+    hideContextMenu();
+  });
+  document.getElementById('ctx-edge-delete').addEventListener('click', () => {
+    if (ctxTarget && ctxTarget.type === 'edge') deleteEdge(ctxTarget.data.id);
+    hideContextMenu();
+  });
+  document.addEventListener('click', () => hideContextMenu());
+}
+
+// ============================================================
+// KEYBOARD SHORTCUTS
+// ============================================================
+function setupKeyboard() {
+  document.addEventListener('keydown', (e) => {
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+    if (e.key === ' ') { state.spaceDown = true; e.preventDefault(); }
+    if (e.ctrlKey || e.metaKey) {
+      if (e.key === 'z' || e.key === 'Z') { undo(); e.preventDefault(); }
+      else if (e.key === 'y' || e.key === 'Y') { redo(); e.preventDefault(); }
+      else if (e.key === 'a' || e.key === 'A') {
+        state.selectedNodes = new Set(state.nodes.map(n=>n.id));
+        state.selectedEdge = null;
+        render(); updateRightPanel(); updateLayersPanel();
+        e.preventDefault();
+      }
+      else if (e.key === 'd' || e.key === 'D') { copySelectedNodes(); e.preventDefault(); }
+    }
+    if (e.key === 'Delete' || e.key === 'Backspace') {
+      if (state.selectedNodes.size > 0) deleteSelectedNodes();
+      else if (state.selectedEdge) deleteEdge(state.selectedEdge);
+    }
+    if (e.key === 'Escape') {
+      state.selectedNodes.clear();
+      state.selectedEdge = null;
+      cancelNodeEdit();
+      render(); updateRightPanel(); updateLayersPanel();
+    }
+  });
+  document.addEventListener('keyup', (e) => {
+    if (e.key === ' ') state.spaceDown = false;
+  });
+}
+
+// ============================================================
+// NL COMMAND BAR
+// ============================================================
+function setupNLBar() {
+  const toggle = document.getElementById('nl-toggle');
+  const inputArea = document.getElementById('nl-input-area');
+  const input = document.getElementById('nl-input');
+  const result = document.getElementById('nl-result');
+
+  toggle.addEventListener('click', () => {
+    inputArea.classList.toggle('open');
+    if (inputArea.classList.contains('open')) input.focus();
+  });
+
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') executeNLCommand(input.value.trim(), result);
+    if (e.key === 'Escape') inputArea.classList.remove('open');
+  });
+}
+
+function executeNLCommand(cmd, resultEl) {
+  if (!cmd) return;
+  resultEl.style.display = 'none';
+
+  let match;
+
+  // 删除【X】节点
+  match = cmd.match(/^删除【(.+?)】节点$/);
+  if (match) {
+    const label = match[1];
+    const node = state.nodes.find(n => n.label.includes(label));
+    if (node) {
+      deleteNode(node.id);
+      saveHistory(`NL: 删除节点"${label}"`);
+      render(); updateLayersPanel(); updateRightPanel();
+      showNLResult(resultEl, `已删除节点"${label}"`, 'ok');
+    } else {
+      showNLResult(resultEl, `未找到节点"${label}"`, 'warn');
+    }
+    return;
+  }
+
+  // 把【X】改成【color】
+  match = cmd.match(/^把【(.+?)】改成【(.+?)】$/);
+  if (match) {
+    const label = match[1];
+    const color = match[2];
+    const node = state.nodes.find(n => n.label.includes(label));
+    if (node) {
+      const colorMap = { 红:'#E74C3C',蓝:'#4A90D9',绿:'#27AE60',黄:'#F1C40F',紫:'#8E44AD',
+                        橙:'#E67E22',白:'#FFFFFF',黑:'#000000',灰:'#95A5A6',
+                        red:'#E74C3C',blue:'#4A90D9',green:'#27AE60',yellow:'#F1C40F',
+                        purple:'#8E44AD',orange:'#E67E22',white:'#FFFFFF',black:'#000000' };
+      node.fill = colorMap[color] || color;
+      saveHistory(`NL: 改颜色"${label}"`);
+      render();
+      showNLResult(resultEl, `已将"${label}"颜色改为${color}`, 'ok');
+    } else {
+      showNLResult(resultEl, `未找到节点"${label}"`, 'warn');
+    }
+    return;
+  }
+
+  // 把【X】文字改为【Y】
+  match = cmd.match(/^把【(.+?)】文字改为【(.+?)】$/);
+  if (match) {
+    const label = match[1], newLabel = match[2];
+    const node = state.nodes.find(n => n.label.includes(label));
+    if (node) {
+      node.label = newLabel;
+      saveHistory(`NL: 改文字"${label}"`);
+      render(); updateLayersPanel();
+      showNLResult(resultEl, `已将文字改为"${newLabel}"`, 'ok');
+    } else {
+      showNLResult(resultEl, `未找到节点"${label}"`, 'warn');
+    }
+    return;
+  }
+
+  // 在【A】和【B】之间添加连线
+  match = cmd.match(/^在【(.+?)】和【(.+?)】之间添加连线$/);
+  if (match) {
+    const la = match[1], lb = match[2];
+    const na = state.nodes.find(n => n.label.includes(la));
+    const nb = state.nodes.find(n => n.label.includes(lb));
+    if (na && nb) {
+      addEdge(na.id, nb.id);
+      showNLResult(resultEl, `已在"${la}"和"${lb}"之间添加连线`, 'ok');
+    } else {
+      showNLResult(resultEl, `未找到节点"${la}"或"${lb}"`, 'warn');
+    }
+    return;
+  }
+
+  // 删除【A】到【B】的连线
+  match = cmd.match(/^删除【(.+?)】到【(.+?)】的连线$/);
+  if (match) {
+    const la = match[1], lb = match[2];
+    const na = state.nodes.find(n => n.label.includes(la));
+    const nb = state.nodes.find(n => n.label.includes(lb));
+    if (na && nb) {
+      const edge = state.edges.find(e => e.source === na.id && e.target === nb.id);
+      if (edge) {
+        deleteEdge(edge.id);
+        showNLResult(resultEl, `已删除"${la}"到"${lb}"的连线`, 'ok');
+      } else {
+        showNLResult(resultEl, `未找到"${la}"到"${lb}"的连线`, 'warn');
+      }
+    } else {
+      showNLResult(resultEl, `未找到相关节点`, 'warn');
+    }
+    return;
+  }
+
+  // 把【X】变大 / 变小
+  match = cmd.match(/^把【(.+?)】(变大|变小)$/);
+  if (match) {
+    const label = match[1], dir = match[2];
+    const node = state.nodes.find(n => n.label.includes(label));
+    if (node) {
+      node.r = Math.max(15, Math.min(150, (node.r || 30) + (dir === '变大' ? 20 : -20)));
+      saveHistory(`NL: 调整大小"${label}"`);
+      render();
+      showNLResult(resultEl, `已将"${label}"${dir}`, 'ok');
+    } else {
+      showNLResult(resultEl, `未找到节点"${label}"`, 'warn');
+    }
+    return;
+  }
+
+  // 添加节点【X】
+  match = cmd.match(/^添加节点【(.+?)】$/);
+  if (match) {
+    const label = match[1];
+    updateSvgSize();
+    const cx = (svgWidth/2 - state.transform.x) / state.transform.k;
+    const cy = (svgHeight/2 - state.transform.y) / state.transform.k;
+    addNode(cx, cy, label);
+    showNLResult(resultEl, `已添加节点"${label}"`, 'ok');
+    return;
+  }
+
+  // 反转【A】到【B】的箭头
+  match = cmd.match(/^反转【(.+?)】到【(.+?)】的箭头$/);
+  if (match) {
+    const la = match[1], lb = match[2];
+    const na = state.nodes.find(n => n.label.includes(la));
+    const nb = state.nodes.find(n => n.label.includes(lb));
+    if (na && nb) {
+      const edge = state.edges.find(e => e.source === na.id && e.target === nb.id);
+      if (edge) {
+        [edge.source, edge.target] = [edge.target, edge.source];
+        saveHistory(`NL: 反转箭头`);
+        render();
+        showNLResult(resultEl, `已反转"${la}"到"${lb}"的箭头`, 'ok');
+      } else {
+        showNLResult(resultEl, `未找到该连线`, 'warn');
+      }
+    } else {
+      showNLResult(resultEl, `未找到相关节点`, 'warn');
+    }
+    return;
+  }
+
+  // 选中【X】子树
+  match = cmd.match(/^选中【(.+?)】子树$/);
+  if (match) {
+    const label = match[1];
+    const node = state.nodes.find(n => n.label.includes(label));
+    if (node) {
+      selectSubtree(node.id);
+      showNLResult(resultEl, `已选中"${label}"的子树`, 'ok');
+    } else {
+      showNLResult(resultEl, `未找到节点"${label}"`, 'warn');
+    }
+    return;
+  }
+
+  // 把【A】移到【B】下面
+  match = cmd.match(/^把【(.+?)】移到【(.+?)】下面$/);
+  if (match) {
+    const la = match[1], lb = match[2];
+    const na = state.nodes.find(n => n.label.includes(la));
+    const nb = state.nodes.find(n => n.label.includes(lb));
+    if (na && nb) {
+      na.x = nb.x + (Math.random()-0.5) * 80;
+      na.y = nb.y + (nb.r||30) + (na.r||30) + 30;
+      // Add edge if not exists
+      if (!state.edges.find(e => e.source === nb.id && e.target === na.id)) {
+        addEdge(nb.id, na.id);
+      }
+      saveHistory(`NL: 移动节点`);
+      render();
+      showNLResult(resultEl, `已将"${la}"移到"${lb}"下面`, 'ok');
+    } else {
+      showNLResult(resultEl, `未找到相关节点`, 'warn');
+    }
+    return;
+  }
+
+  showNLResult(resultEl, `未能识别命令，请检查格式`, 'warn');
+  showToast('未识别的命令', 'warning');
+}
+
+function showNLResult(el, msg, type) {
+  el.textContent = msg;
+  el.className = ``;
+  el.style.display = 'block';
+  el.style.background = type === 'ok' ? 'rgba(46,204,113,0.15)' :
+                        type === 'warn' ? 'rgba(243,156,18,0.15)' : 'rgba(231,76,60,0.15)';
+  el.style.color = type === 'ok' ? 'var(--success)' :
+                   type === 'warn' ? 'var(--warning)' : 'var(--danger)';
+  el.style.padding = '4px 8px';
+  el.style.borderRadius = '4px';
+}
+
+// ============================================================
+// EXPORT IMAGE
+// ============================================================
+function setupExportModal() {
+  const overlay = document.getElementById('modal-overlay');
+  document.getElementById('modal-cancel').addEventListener('click', () => overlay.classList.remove('open'));
+
+  // Radio button styling
+  overlay.addEventListener('click', (e) => {
+    const label = e.target.closest('.radio-label');
+    if (!label) return;
+    const group = label.closest('.radio-group');
+    if (!group) return;
+    group.querySelectorAll('.radio-label').forEach(l => l.classList.remove('checked'));
+    label.classList.add('checked');
+    label.querySelector('input').checked = true;
+  });
+
+  document.getElementById('modal-confirm').addEventListener('click', () => {
+    const fmt = overlay.querySelector('input[name="fmt"]:checked')?.value || 'png';
+    const res = parseInt(overlay.querySelector('input[name="res"]:checked')?.value || '1');
+    const range = overlay.querySelector('input[name="range"]:checked')?.value || 'all';
+    const bg = overlay.querySelector('input[name="bg"]:checked')?.value || 'dot';
+    overlay.classList.remove('open');
+    if (fmt === 'svg') exportSVG(range, bg);
+    else exportPNG(res, range, bg);
+  });
+}
+
+function getExportBounds(range) {
+  if (range === 'viewport') {
+    return { x: -state.transform.x / state.transform.k,
+             y: -state.transform.y / state.transform.k,
+             w: svgWidth / state.transform.k,
+             h: svgHeight / state.transform.k };
+  }
+  // All nodes
+  if (state.nodes.length === 0) return { x: 0, y: 0, w: svgWidth, h: svgHeight };
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  state.nodes.forEach(n => {
+    const r = n.r || 30;
+    minX = Math.min(minX, n.x - r - 20);
+    minY = Math.min(minY, n.y - r - 20);
+    maxX = Math.max(maxX, n.x + r + 20);
+    maxY = Math.max(maxY, n.y + r + 20);
+  });
+  return { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
+}
+
+function exportSVG(range, bg) {
+  updateSvgSize();
+  const bounds = getExportBounds(range);
+  const svgClone = document.getElementById('main-svg').cloneNode(true);
+  svgClone.setAttribute('width', bounds.w);
+  svgClone.setAttribute('height', bounds.h);
+  svgClone.setAttribute('viewBox', `${bounds.x} ${bounds.y} ${bounds.w} ${bounds.h}`);
+
+  // Handle background
+  const bgRect = svgClone.querySelector('#bg-rect');
+  if (bgRect) {
+    if (bg === 'white') { bgRect.setAttribute('fill','white'); bgRect.removeAttribute('style'); }
+    else if (bg === 'transparent') { bgRect.setAttribute('fill','none'); }
+  }
+
+  // Inline styles
+  svgClone.style.background = bg === 'white' ? 'white' : bg === 'transparent' ? 'transparent' : '';
+
+  const serializer = new XMLSerializer();
+  const svgStr = serializer.serializeToString(svgClone);
+  const blob = new Blob([svgStr], { type: 'image/svg+xml' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = '知识图谱.svg';
+  a.click();
+  showToast('SVG已导出','success');
+}
+
+function exportPNG(scale, range, bg) {
+  updateSvgSize();
+  const bounds = getExportBounds(range);
+  const w = Math.round(bounds.w * scale);
+  const h = Math.round(bounds.h * scale);
+
+  const svgClone = document.getElementById('main-svg').cloneNode(true);
+  svgClone.setAttribute('width', w);
+  svgClone.setAttribute('height', h);
+  svgClone.setAttribute('viewBox', `${bounds.x} ${bounds.y} ${bounds.w} ${bounds.h}`);
+
+  const bgRect = svgClone.querySelector('#bg-rect');
+  if (bgRect) {
+    if (bg === 'white') { bgRect.setAttribute('fill','white'); }
+    else if (bg === 'transparent') { bgRect.setAttribute('fill','none'); }
+    else { bgRect.setAttribute('fill','#1a1a2e'); }
+  }
+
+  // Add background rect with dark color if dot grid
+  if (bg === 'dot') {
+    const bgSolid = document.createElementNS('http://www.w3.org/2000/svg','rect');
+    bgSolid.setAttribute('width','100%'); bgSolid.setAttribute('height','100%');
+    bgSolid.setAttribute('fill', state.theme === 'light' ? '#f5f5f5' : '#1a1a2e');
+    svgClone.insertBefore(bgSolid, svgClone.firstChild);
+  }
+
+  const serializer = new XMLSerializer();
+  const svgStr = serializer.serializeToString(svgClone);
+  const svgBlob = new Blob([svgStr], { type: 'image/svg+xml;charset=utf-8' });
+  const url = URL.createObjectURL(svgBlob);
+
+  const img = new Image();
+  img.onload = () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = w; canvas.height = h;
+    const ctx = canvas.getContext('2d');
+    if (bg === 'transparent') {
+      ctx.clearRect(0, 0, w, h);
+    } else {
+      ctx.fillStyle = bg === 'white' ? 'white' : (state.theme === 'light' ? '#f5f5f5' : '#1a1a2e');
+      ctx.fillRect(0, 0, w, h);
+    }
+    ctx.drawImage(img, 0, 0);
+    URL.revokeObjectURL(url);
+    canvas.toBlob((blob) => {
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `知识图谱${scale}x.png`;
+      a.click();
+      showToast(`PNG(${scale}x)已导出`, 'success');
+    }, 'image/png');
+  };
+  img.onerror = () => { showToast('导出失败','error'); URL.revokeObjectURL(url); };
+  img.src = url;
+}
+
+// ============================================================
+// LAYOUT ALGORITHMS
+// ============================================================
+function removeOverlaps() {
+  const iterations = 100;
+  for (let i = 0; i < iterations; i++) {
+    let moved = false;
+    for (let a = 0; a < state.nodes.length; a++) {
+      for (let b = a+1; b < state.nodes.length; b++) {
+        const na = state.nodes[a], nb = state.nodes[b];
+        const dx = nb.x - na.x, dy = nb.y - na.y;
+        const dist = Math.sqrt(dx*dx + dy*dy) || 0.01;
+        const minDist = (na.r || 30) + (nb.r || 30) + 15;
+        if (dist < minDist) {
+          const push = (minDist - dist) / 2 + 1;
+          const ux = dx/dist, uy = dy/dist;
+          na.x -= ux * push; na.y -= uy * push;
+          nb.x += ux * push; nb.y += uy * push;
+          moved = true;
+        }
+      }
+    }
+    if (!moved) break;
+  }
+  saveHistory('消除重叠');
+  render();
+  showToast('已消除重叠', 'success', 1500);
+}
+
+function runForceLayout() {
+  showToast('正在计算力导向布局...', 'info', 1000);
+  const nodes = state.nodes.map(n => ({ ...n }));
+  const edges = state.edges;
+
+  const sim = d3.forceSimulation(nodes)
+    .force('link', d3.forceLink(edges.map(e => ({ source: e.source, target: e.target })))
+      .id(d => d.id).distance(120).strength(0.5))
+    .force('charge', d3.forceManyBody().strength(-500))
+    .force('center', d3.forceCenter(600, 400))
+    .force('collision', d3.forceCollide(d => (d.r || 30) + 20))
+    .stop();
+
+  for (let i = 0; i < 300; i++) sim.tick();
+
+  nodes.forEach(simNode => {
+    const node = getNodeById(simNode.id);
+    if (node) { node.x = simNode.x; node.y = simNode.y; }
+  });
+
+  saveHistory('自动布局');
+  render();
+  fitAll();
+  showToast('布局完成', 'success', 1500);
+}
+
+function fitAll() {
+  if (state.nodes.length === 0) return;
+  updateSvgSize();
+  const bounds = getExportBounds('all');
+  const padding = 60;
+  const kx = (svgWidth - padding*2) / bounds.w;
+  const ky = (svgHeight - padding*2) / bounds.h;
+  state.transform.k = Math.min(kx, ky, 1);
+  state.transform.x = (svgWidth - bounds.w * state.transform.k) / 2 - bounds.x * state.transform.k;
+  state.transform.y = (svgHeight - bounds.h * state.transform.k) / 2 - bounds.y * state.transform.k;
+  applyTransform();
+}
+
+// ============================================================
+// COLOR SCHEMES
+// ============================================================
+const COLOR_SCHEMES = {
+  default: null,
+  warm: { fills: ['#E74C3C','#E67E22','#F1C40F','#C0392B','#D35400'], stroke: 0.2 },
+  cool: { fills: ['#3498DB','#2980B9','#1ABC9C','#16A085','#2ECC71'], stroke: 0.2 },
+  grayscale: { fills: ['#555','#777','#999','#aaa','#ccc'], stroke: 0.15 },
+  night: { fills: ['#1A1A2E','#16213E','#0F3460','#533483','#E94560'], stroke: 0.1 }
+};
+
+function applyColorScheme(scheme) {
+  if (scheme === 'default') return; // Don't reset
+  const cs = COLOR_SCHEMES[scheme];
+  if (!cs) return;
+  state.nodes.forEach((n, i) => {
+    n.fill = cs.fills[i % cs.fills.length];
+    n.stroke = d3.color(n.fill).darker(0.5).formatHex();
+  });
+  saveHistory('应用配色方案');
+  render();
+  showToast(`已应用"${scheme}"配色`, 'success', 1500);
+}
+
+// ============================================================
+// INITIALIZATION
+// ============================================================
+function init() {
+  updateSvgSize();
+
+  // Load sample data
+  state.nodes = deepClone(SAMPLE_DATA.nodes);
+  state.edges = deepClone(SAMPLE_DATA.edges);
+
+  // Set id counters
+  state.nodes.forEach(n => {
+    const num = parseInt(n.id.replace('n',''));
+    if (num > state.nodeIdCounter) state.nodeIdCounter = num;
+  });
+  state.edges.forEach(e => {
+    const num = parseInt(e.id.replace('e',''));
+    if (num > state.edgeIdCounter) state.edgeIdCounter = num;
+  });
+
+  // Initial history snapshot
+  saveHistory('初始状态');
+
+  // Setup canvas
+  setupCanvasEvents();
+
+  // Setup toolbar
+  setupToolbar();
+
+  // Setup context menu
+  setupContextMenuEvents();
+
+  // Setup keyboard
+  setupKeyboard();
+
+  // Setup right panel
+  setupRightPanelEvents();
+
+  // Setup panel tabs
+  setupPanelTabs();
+
+  // Setup NL bar
+  setupNLBar();
+
+  // Setup export modal
+  setupExportModal();
+
+  // Add left panel toggle button to DOM
+  const toggleBtn = document.createElement('button');
+  toggleBtn.id = 'left-toggle';
+  toggleBtn.innerHTML = '<i class="fa fa-chevron-left"></i>';
+  toggleBtn.title = '折叠/展开侧栏';
+  toggleBtn.style.cssText = 'position:absolute;left:220px;top:50%;transform:translateY(-50%);width:14px;height:40px;background:var(--panel-bg);border:1px solid var(--border);border-left:none;border-radius:0 4px 4px 0;cursor:pointer;display:flex;align-items:center;justify-content:center;z-index:10;transition:left 0.2s;color:var(--text-dim);padding:0;font-size:10px';
+  document.getElementById('main-area').style.position = 'relative';
+  document.getElementById('main-area').appendChild(toggleBtn);
+  toggleBtn.addEventListener('click', () => {
+    const lp = document.getElementById('left-panel');
+    lp.classList.toggle('collapsed');
+    toggleBtn.style.left = lp.classList.contains('collapsed') ? '0px' : '220px';
+    toggleBtn.innerHTML = lp.classList.contains('collapsed')
+      ? '<i class="fa fa-chevron-right"></i>'
+      : '<i class="fa fa-chevron-left"></i>';
+  });
+
+  // Shortcut hint close
+  document.getElementById('close-hint').addEventListener('click', () => {
+    document.getElementById('shortcut-hint').style.display = 'none';
+  });
+
+  // Initial render
+  render();
+  updateLayersPanel();
+
+  // Fit all nodes in view
+  setTimeout(() => {
+    fitAll();
+    document.getElementById('loading').style.display = 'none';
+  }, 100);
+
+  // Window resize
+  window.addEventListener('resize', () => {
+    updateSvgSize();
+    applyTransform();
+  });
+
+  // Prevent context menu on svg
+  document.getElementById('main-svg').addEventListener('contextmenu', (e) => {
+    if (e.target.closest('.node-group') || e.target.closest('.edge-group')) return;
+    e.preventDefault();
+  });
+}
+
+// Wait for DOM + D3
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', init);
+} else {
+  init();
+}
+</script>
+</body>
+</html>
