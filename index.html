@@ -2776,10 +2776,18 @@ function init() {
 }
 
 // Wait for DOM + D3
+function safeInit() {
+  try {
+    init();
+  } catch(e) {
+    console.error('Init error:', e);
+    document.getElementById('loading').style.display = 'none';
+  }
+}
 if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', init);
+  document.addEventListener('DOMContentLoaded', safeInit);
 } else {
-  init();
+  safeInit();
 }
 </script>
 </body>
