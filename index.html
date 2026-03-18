@@ -661,7 +661,7 @@ body.left-collapsed #left-toggle{left:0}
 
 <div id="toast-container"></div>
 
-<input type="file" id="file-input" accept=".json" style="display:none">
+<input type="file" id="file-input" accept=".json,.txt,application/json,text/plain" style="display:none">
 <input type="file" id="img-input" accept="image/*" style="display:none">
 <script>
 // ============================================================
@@ -848,6 +848,152 @@ function hexToRgba(hex, alpha=1) {
 
 function deepClone(obj) {
   return JSON.parse(JSON.stringify(obj));
+}
+
+// ============================================================
+// ROBUST JSON PARSING & NORMALIZATION
+// ============================================================
+function isValidColor(c) {
+  return typeof c === 'string' && /^#[0-9a-fA-F]{3,8}$/.test(c);
+}
+
+function robustParseJSON(text) {
+  if (!text || typeof text !== 'string') throw new Error('输入内容为空');
+  let s = text.trim();
+
+  // 1. Strip BOM (Byte Order Mark，Windows 某些编辑器会添加)
+  if (s.charCodeAt(0) === 0xFEFF) s = s.slice(1);
+
+  // 2. Strip Markdown 代码块 ```json ... ``` 或 ``` ... ```
+  s = s.replace(/^```(?:json|JSON)?\s*\r?\n?([\s\S]*?)\r?\n?```\s*$/m, '$1').trim();
+
+  // 3. 直接尝试解析
+  try { return JSON.parse(s); } catch (_) {}
+
+  // 4. 提取最外层的 { } 或 [ ]（处理 Claude 在 JSON 前后添加文字的情况）
+  function extractAndParse(str) {
+    // 修复常见格式问题
+    let fixed = str
+      .replace(/\/\/[^\n\r]*/g, '')           // 去除 // 单行注释
+      .replace(/\/\*[\s\S]*?\*\//g, '')        // 去除 /* */ 多行注释
+      .replace(/,\s*([}\]])/g, '$1')           // 去除尾随逗号
+      .replace(/([{,]\s*)(\w[\w\d]*)\s*:/g, '$1"$2":') // 裸键名加引号
+      .trim();
+    try { return JSON.parse(fixed); } catch (_) {}
+
+    // 尝试把单引号替换为双引号（简单情形）
+    let fixed2 = fixed.replace(/'([^'\\]*)'/g, '"$1"');
+    try { return JSON.parse(fixed2); } catch (_) {}
+
+    throw new Error('格式无法自动修复');
+  }
+
+  // 找到最外层 { } 或 [ ]
+  const obj = s.match(/\{[\s\S]*\}/s);
+  const arr = s.match(/\[[\s\S]*\]/s);
+  const candidate = obj && arr
+    ? (obj.index <= arr.index ? obj[0] : arr[0])
+    : (obj ? obj[0] : arr ? arr[0] : null);
+
+  if (candidate) {
+    try { return extractAndParse(candidate); } catch (_) {}
+  }
+  try { return extractAndParse(s); } catch (_) {}
+
+  throw new Error('无法解析 JSON，请确认格式正确（不含多余文字、注释已去除）');
+}
+
+const VALID_SHAPES  = new Set(['circle','ellipse','rect','rounded-rect','diamond']);
+const VALID_ARROW   = new Set(['none','single','double']);
+const VALID_STYLE   = new Set(['solid','dashed','dotted']);
+
+function normalizeNode(n, idx) {
+  const id = n.id != null ? String(n.id) : ('imported_n' + idx);
+  return {
+    id,
+    label:       String(n.label ?? n.name ?? n.text ?? ''),
+    group:       String(n.group ?? n.category ?? n.layer ?? ''),
+    x:           isFinite(n.x) ? Number(n.x) : 400 + idx * 10,
+    y:           isFinite(n.y) ? Number(n.y) : 300 + idx * 10,
+    r:           isFinite(n.r) && n.r > 0 ? Number(n.r) : 35,
+    shape:       VALID_SHAPES.has(n.shape) ? n.shape : 'circle',
+    fill:        isValidColor(n.fill)       ? n.fill       : '#4A90D9',
+    stroke:      isValidColor(n.stroke)     ? n.stroke     : '#2C6FAC',
+    strokeWidth: isFinite(n.strokeWidth)    ? Number(n.strokeWidth) : 2,
+    fontSize:    isFinite(n.fontSize) && n.fontSize > 0 ? Number(n.fontSize) : 14,
+    fontFamily:  n.fontFamily || 'Microsoft YaHei',
+    fontColor:   isValidColor(n.fontColor)  ? n.fontColor  : '#FFFFFF',
+    bold:        !!n.bold,
+    italic:      !!n.italic,
+    opacity:     isFinite(n.opacity) ? Math.max(0, Math.min(1, Number(n.opacity))) : 1,
+    // 图片节点保留特殊字段
+    ...(n.type === 'image' ? { type: 'image', src: n.src || '' } : {})
+  };
+}
+
+function normalizeEdge(e, nodeIdSet, idx) {
+  const source = String(e.source ?? e.from ?? '');
+  const target = String(e.target ?? e.to   ?? '');
+  return {
+    id:        e.id != null ? String(e.id) : ('imported_e' + idx),
+    source,
+    target,
+    color:     isValidColor(e.color) ? e.color : '#999999',
+    width:     isFinite(e.width) && e.width > 0 ? Number(e.width) : 1.5,
+    arrowMode: VALID_ARROW.has(e.arrowMode) ? e.arrowMode : 'single',
+    lineStyle: VALID_STYLE.has(e.lineStyle) ? e.lineStyle : 'solid',
+    curvature: isFinite(e.curvature) ? Math.max(0, Math.min(1, Number(e.curvature))) : 0,
+    label:     String(e.label ?? '')
+  };
+}
+
+/**
+ * 从原始 parsed 对象中灵活提取 nodes/edges，
+ * 兼容多种格式：{nodes,edges} / {graph:{nodes,edges}} / 纯数组 等
+ */
+function extractGraphArrays(data) {
+  if (!data || typeof data !== 'object') throw new Error('数据不是对象');
+
+  // 标准格式
+  if (Array.isArray(data.nodes)) return { nodes: data.nodes, edges: data.edges || [] };
+  // 嵌套格式
+  for (const key of ['graph','data','content','result']) {
+    if (data[key] && Array.isArray(data[key].nodes)) {
+      return { nodes: data[key].nodes, edges: data[key].edges || [] };
+    }
+  }
+  // 纯节点数组（无边）
+  if (Array.isArray(data)) {
+    if (data.length === 0 || data[0].source === undefined) return { nodes: data, edges: [] };
+  }
+  throw new Error('找不到 nodes 数组，请确认格式包含 "nodes" 字段');
+}
+
+/**
+ * 验证并规范化完整图谱数据，返回 { nodes, edges, warnings }
+ */
+function validateAndNormalizeGraph(raw) {
+  const { nodes: rawNodes, edges: rawEdges } = extractGraphArrays(raw);
+  const warnings = [];
+
+  const nodes = rawNodes.map((n, i) => normalizeNode(n, i));
+  const nodeIdSet = new Set(nodes.map(n => n.id));
+
+  const edges = [];
+  (rawEdges || []).forEach((e, i) => {
+    const ne = normalizeEdge(e, nodeIdSet, i);
+    if (!nodeIdSet.has(ne.source)) {
+      warnings.push(`边 "${ne.id}" 的 source "${ne.source}" 不存在，已跳过`);
+      return;
+    }
+    if (!nodeIdSet.has(ne.target)) {
+      warnings.push(`边 "${ne.id}" 的 target "${ne.target}" 不存在，已跳过`);
+      return;
+    }
+    edges.push(ne);
+  });
+
+  return { nodes, edges, warnings };
 }
 
 function getNodeById(id) { return state.nodes.find(n=>n.id===id); }
@@ -1679,6 +1825,50 @@ function setupCanvasEvents() {
       document.addEventListener('mouseup', onUp);
     }
   });
+
+  // Drag-and-drop JSON files onto canvas
+  container.addEventListener('dragover', (e) => {
+    if ([...e.dataTransfer.items].some(i => i.kind === 'file')) {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'copy';
+      container.style.outline = '2px dashed var(--accent)';
+    }
+  });
+  container.addEventListener('dragleave', () => { container.style.outline = ''; });
+  container.addEventListener('drop', async (e) => {
+    e.preventDefault();
+    container.style.outline = '';
+    const files = [...e.dataTransfer.files];
+    for (const file of files) {
+      const isJson = file.name.endsWith('.json') || file.name.endsWith('.txt') || file.type.includes('json') || file.type.includes('text');
+      if (!isJson) continue;
+      const text = await file.text();
+      try {
+        const raw = robustParseJSON(text);
+        const { nodes, edges, warnings } = validateAndNormalizeGraph(raw);
+        if (nodes.length === 0) throw new Error('未找到节点');
+        let replace = true;
+        if (state.nodes.length > 0) {
+          replace = await showConfirm('导入方式', `拖入文件：${file.name}\n导入 ${nodes.length} 个节点，${edges.length} 条连线。\n\n确认=替换画布，取消=合并到画布`);
+        }
+        if (replace) {
+          state.nodes = nodes; state.edges = edges;
+        } else {
+          const idMap = {};
+          nodes.forEach(n => { const nid = genId('n'); idMap[n.id] = nid; n.id = nid; });
+          edges.forEach(e => { e.id = genId('e'); e.source = idMap[e.source]||e.source; e.target = idMap[e.target]||e.target; });
+          state.nodes = state.nodes.concat(nodes); state.edges = state.edges.concat(edges);
+        }
+        state.selectedNodes.clear(); state.selectedEdge = null;
+        saveHistory('拖入导入JSON');
+        render(); updateLayersPanel(); updateHistoryPanel(); updateRightPanel(); fitAll();
+        showToast(`导入成功：${nodes.length} 节点，${edges.length} 连线`, 'success', 2500);
+        if (warnings.length) console.warn('导入警告:', warnings);
+      } catch(err) {
+        showToast('导入失败：' + err.message, 'error', 5000);
+      }
+    }
+  });
 }
 
 // ============================================================
@@ -2457,27 +2647,47 @@ function setupToolbar() {
     const file = this.files[0];
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = (e) => {
+    reader.onload = async (e) => {
       try {
-        const data = JSON.parse(e.target.result);
-        if (data.nodes && data.edges) {
-          state.nodes = data.nodes;
-          state.edges = data.edges;
-          state.selectedNodes.clear();
-          state.selectedEdge = null;
-          saveHistory('导入JSON');
-          render();
-          updateLayersPanel();
-          updateHistoryPanel();
-          updateRightPanel();
-          fitAll();
-          showToast('导入成功','success');
-        } else throw new Error('格式错误');
+        const raw = robustParseJSON(e.target.result);
+        const { nodes, edges, warnings } = validateAndNormalizeGraph(raw);
+        if (nodes.length === 0) throw new Error('未解析到任何节点');
+
+        // 若当前画布有内容，询问替换还是合并
+        let replace = true;
+        if (state.nodes.length > 0) {
+          replace = await showConfirm(
+            '导入方式',
+            `即将导入 ${nodes.length} 个节点，${edges.length} 条连线。\n\n` +
+            '点击"确认"替换当前画布；点击"取消"则合并到当前画布。'
+          );
+        }
+
+        if (replace) {
+          state.nodes = nodes;
+          state.edges = edges;
+        } else {
+          // 合并：需重映射 ID 防止冲突
+          const idMap = {};
+          nodes.forEach(n => { const newId = genId('n'); idMap[n.id] = newId; n.id = newId; });
+          edges.forEach(e => { e.id = genId('e'); e.source = idMap[e.source]||e.source; e.target = idMap[e.target]||e.target; });
+          state.nodes = state.nodes.concat(nodes);
+          state.edges = state.edges.concat(edges);
+        }
+
+        state.selectedNodes.clear(); state.selectedEdge = null;
+        saveHistory('导入JSON');
+        render(); updateLayersPanel(); updateHistoryPanel(); updateRightPanel(); fitAll();
+
+        const warnText = warnings.length ? `\n⚠ ${warnings.length} 条边被跳过（节点不存在）` : '';
+        showToast(`导入成功：${nodes.length} 节点，${edges.length} 连线${warnText}`, 'success', 3000);
+        if (warnings.length) console.warn('导入警告:', warnings);
       } catch(err) {
-        showToast('导入失败: ' + err.message, 'error');
+        showToast('导入失败：' + err.message, 'error', 5000);
+        console.error('JSON import error:', err);
       }
     };
-    reader.readAsText(file);
+    reader.readAsText(file, 'UTF-8');   // 明确指定 UTF-8，确保中文不乱码
     this.value = '';
   });
 
@@ -3186,10 +3396,7 @@ async function analyzeImageWithClaude(node, replaceOriginal) {
     const text = data.content?.[0]?.text || '';
 
     // Extract JSON robustly
-    const jsonMatch = text.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) throw new Error('AI 未返回有效 JSON');
-    const parsed = JSON.parse(jsonMatch[0]);
-    if (!Array.isArray(parsed.nodes)) throw new Error('返回数据格式不正确');
+    const parsed = robustParseJSON(text);
 
     // Offset to place near image node center
     const cx = node.x, cy = node.y;
@@ -3215,34 +3422,24 @@ async function analyzeImageWithClaude(node, replaceOriginal) {
 
 // Import parsed JSON (shared by Claude Pro modal and JSON file import)
 function importParsedGraphData(parsed, keepImageNode, imageNodeId) {
-  if (!Array.isArray(parsed.nodes)) throw new Error('缺少 nodes 数组');
-  // Re-assign IDs to avoid collision
-  const idMapN = {};
-  parsed.nodes.forEach(n => {
-    const newId = genId('n');
-    idMapN[n.id] = newId;
-    n.id = newId;
-    if (!n.fontFamily) n.fontFamily = 'Microsoft YaHei';
-    if (!n.fontColor)  n.fontColor  = '#FFFFFF';
-    if (n.opacity === undefined) n.opacity = 1;
-    if (!n.group) n.group = '';
-  });
-  (parsed.edges || []).forEach(e => {
-    e.id = genId('e');
-    e.source = idMapN[e.source] || e.source;
-    e.target = idMapN[e.target] || e.target;
-    if (!e.lineStyle) e.lineStyle = 'solid';
-    if (!e.arrowMode) e.arrowMode = 'single';
-  });
-  state.nodes = state.nodes.concat(parsed.nodes);
-  state.edges = state.edges.concat(parsed.edges || []);
+  const { nodes, edges, warnings } = validateAndNormalizeGraph(parsed);
+  if (nodes.length === 0) throw new Error('未解析到任何节点');
+
+  // Re-assign IDs to avoid collision with existing canvas nodes
+  const idMap = {};
+  nodes.forEach(n => { const newId = genId('n'); idMap[n.id] = newId; n.id = newId; });
+  edges.forEach(e => { e.id = genId('e'); e.source = idMap[e.source]||e.source; e.target = idMap[e.target]||e.target; });
+
+  state.nodes = state.nodes.concat(nodes);
+  state.edges = state.edges.concat(edges);
   if (!keepImageNode && imageNodeId) {
     state.nodes = state.nodes.filter(n => n.id !== imageNodeId);
     state.edges = state.edges.filter(e => e.source !== imageNodeId && e.target !== imageNodeId);
   }
+  if (warnings.length) console.warn('导入警告:', warnings);
   saveHistory('导入图谱');
   render(); updateLayersPanel(); updateRightPanel();
-  return { nc: parsed.nodes.length, ec: (parsed.edges || []).length };
+  return { nc: nodes.length, ec: edges.length, warnings };
 }
 
 function setupCproModal() {
@@ -3292,9 +3489,7 @@ function setupCproModal() {
     const msgEl = document.getElementById('cpro-import-msg');
     if (!raw) { msgEl.textContent = '⚠ 请先粘贴 Claude 返回的 JSON'; msgEl.style.color = 'var(--warning)'; return; }
     try {
-      const jsonMatch = raw.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) throw new Error('未找到有效 JSON（需包含 { } ）');
-      const parsed = JSON.parse(jsonMatch[0]);
+      const parsed = robustParseJSON(raw);
       const keepImg = document.getElementById('cpro-keep-img').checked;
       // Find current selected image node (if any)
       const selNodeId = state.selectedNodes.size === 1 ? [...state.selectedNodes][0] : null;
