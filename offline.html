@@ -34,6 +34,14 @@ body.light{--bg:#f5f5f5;--panel-bg:#ffffff;--toolbar-bg:#2c3e50;--accent:#2980b9
 #zoom-display{height:32px;padding:0 8px;background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.2);border-radius:4px;color:var(--text);font-size:13px;cursor:pointer;min-width:60px;text-align:center;display:flex;align-items:center;justify-content:center}
 #zoom-display:hover{background:rgba(255,255,255,0.2)}
 .tb-spacer{flex:1}
+#edge-style-popup{display:none;position:absolute;top:40px;left:0;background:var(--panel-bg);border:1px solid var(--border);border-radius:6px;padding:10px 12px;min-width:200px;z-index:200;box-shadow:0 4px 16px rgba(0,0,0,0.4)}
+#edge-style-popup.open{display:block}
+.esp-title{font-size:12px;font-weight:bold;color:var(--accent);margin-bottom:8px}
+.esp-row{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px;font-size:12px}
+.esp-row input[type=color]{width:36px;height:24px;border:none;padding:0;cursor:pointer;border-radius:3px}
+.esp-row input[type=range]{flex:1}
+.esp-row select{flex:1;background:rgba(255,255,255,0.1);border:1px solid var(--border);color:var(--text);border-radius:3px;padding:2px 4px;font-size:12px}
+.esp-row select option{background:#1a1a2e}
 
 /* Main layout */
 #main-area{flex:1;display:flex;overflow:hidden;position:relative}
@@ -213,8 +221,32 @@ body.left-collapsed #left-toggle{left:0}
   </select>
   <div class="tb-sep"></div>
   <button class="tb-btn" id="btn-import" title="导入JSON"><i class="fa fa-upload"></i> 导入</button>
+  <button class="tb-btn" id="btn-import-img" title="上传图片到画布"><i class="fa fa-file-image"></i> 上传图片</button>
   <button class="tb-btn" id="btn-export-json" title="导出JSON"><i class="fa fa-download"></i> 导出JSON</button>
   <button class="tb-btn" id="btn-export-img" title="导出图片"><i class="fa fa-image"></i> 导出图片</button>
+  <div class="tb-sep"></div>
+  <div style="position:relative">
+    <button class="tb-btn" id="btn-connect-mode" title="连线模式：点击节点→拖到目标节点"><i class="fa fa-bezier-curve"></i> 连线</button>
+    <div id="edge-style-popup">
+      <div class="esp-title">默认连线样式</div>
+      <div class="esp-row"><span>颜色</span><input type="color" id="def-edge-color" value="#999999"></div>
+      <div class="esp-row"><span>线宽 <b id="def-edge-width-val">1.5</b>px</span><input type="range" id="def-edge-width" min="1" max="8" step="0.5" value="1.5"></div>
+      <div class="esp-row"><span>线型</span>
+        <select id="def-edge-style">
+          <option value="solid">实线</option>
+          <option value="dashed">虚线</option>
+          <option value="dotted">点线</option>
+        </select>
+      </div>
+      <div class="esp-row"><span>箭头</span>
+        <select id="def-edge-arrow">
+          <option value="none">无</option>
+          <option value="single">单向→</option>
+          <option value="double">双向↔</option>
+        </select>
+      </div>
+    </div>
+  </div>
   <div class="tb-spacer"></div>
   <button class="tb-btn" id="btn-zoom-out" title="缩小"><i class="fa fa-minus"></i></button>
   <div id="zoom-display" title="点击重置100%">100%</div>
@@ -493,6 +525,7 @@ body.left-collapsed #left-toggle{left:0}
 <div id="toast-container"></div>
 
 <input type="file" id="file-input" accept=".json" style="display:none">
+<input type="file" id="img-input" accept="image/*" style="display:none">
 <script>
 // ============================================================
 // STATE MANAGEMENT
@@ -513,7 +546,9 @@ const state = {
   rubberBand: { active: false, x0: 0, y0: 0 },
   theme: 'dark',
   nodeIdCounter: 100,
-  edgeIdCounter: 100
+  edgeIdCounter: 100,
+  connectMode: false,
+  defaultEdgeStyle: { color: '#999999', width: 1.5, arrowMode: 'single', lineStyle: 'solid' }
 };
 
 // ============================================================
@@ -1056,25 +1091,58 @@ function renderNodes() {
     shapeG.selectAll('*').remove();
 
     let shapeEl;
-    if (shape === 'circle') {
+    if (node.type === 'image' && node.src) {
+      // Image node: clip rect + SVG image
+      const clipId = 'clip-' + node.id;
+      const svgEl = d3.select('#main-svg');
+      let clipDef = svgEl.select('#' + clipId);
+      if (clipDef.empty()) {
+        svgEl.select('defs').append('clipPath').attr('id', clipId)
+          .append('rect').attr('x', -r).attr('y', -r).attr('width', r*2).attr('height', r*2).attr('rx', 6).attr('ry', 6);
+      }
+      shapeG.append('image')
+        .attr('x', -r).attr('y', -r).attr('width', r*2).attr('height', r*2)
+        .attr('href', node.src)
+        .attr('preserveAspectRatio', 'xMidYMid slice')
+        .attr('clip-path', `url(#${clipId})`);
+      shapeEl = shapeG.append('rect')
+        .attr('x', -r).attr('y', -r).attr('width', r*2).attr('height', r*2)
+        .attr('rx', 6).attr('ry', 6);
+      shapeEl
+        .attr('fill', 'none')
+        .attr('stroke', isSelected ? '#4A90D9' : (node.stroke || '#4A90D9'))
+        .attr('stroke-width', isSelected ? 3 : (node.strokeWidth || 2))
+        .style('filter', isSelected ? 'drop-shadow(0 0 6px #4A90D9)' : null);
+    } else if (shape === 'circle') {
       shapeEl = shapeG.append('circle')
         .attr('r', r)
         .attr('cx', 0).attr('cy', 0);
+      shapeEl
+        .attr('fill', node.fill || '#4A90D9')
+        .attr('fill-opacity', opacity)
+        .attr('stroke', isSelected ? '#4A90D9' : (node.stroke || '#2C6FAC'))
+        .attr('stroke-width', isSelected ? Math.max(node.strokeWidth||2, 3) : (node.strokeWidth || 2))
+        .style('filter', isSelected ? 'drop-shadow(0 0 6px #4A90D9)' : 'url(#shadow)');
     } else if (shape === 'ellipse') {
       shapeEl = shapeG.append('ellipse')
         .attr('rx', r).attr('ry', r * 0.65)
         .attr('cx', 0).attr('cy', 0);
+      shapeEl
+        .attr('fill', node.fill || '#4A90D9')
+        .attr('fill-opacity', opacity)
+        .attr('stroke', isSelected ? '#4A90D9' : (node.stroke || '#2C6FAC'))
+        .attr('stroke-width', isSelected ? Math.max(node.strokeWidth||2, 3) : (node.strokeWidth || 2))
+        .style('filter', isSelected ? 'drop-shadow(0 0 6px #4A90D9)' : 'url(#shadow)');
     } else {
       const path = getNodeShapePath(node);
       shapeEl = shapeG.append('path').attr('d', path);
+      shapeEl
+        .attr('fill', node.fill || '#4A90D9')
+        .attr('fill-opacity', opacity)
+        .attr('stroke', isSelected ? '#4A90D9' : (node.stroke || '#2C6FAC'))
+        .attr('stroke-width', isSelected ? Math.max(node.strokeWidth||2, 3) : (node.strokeWidth || 2))
+        .style('filter', isSelected ? 'drop-shadow(0 0 6px #4A90D9)' : 'url(#shadow)');
     }
-
-    shapeEl
-      .attr('fill', node.fill || '#4A90D9')
-      .attr('fill-opacity', opacity)
-      .attr('stroke', isSelected ? '#4A90D9' : (node.stroke || '#2C6FAC'))
-      .attr('stroke-width', isSelected ? Math.max(node.strokeWidth||2, 3) : (node.strokeWidth || 2))
-      .style('filter', isSelected ? 'drop-shadow(0 0 6px #4A90D9)' : 'url(#shadow)');
 
     if (isSelected) {
       // Add selection indicator ring
@@ -1088,6 +1156,18 @@ function renderNodes() {
     // Node text with line wrapping
     const textEl = g.select('.node-text');
     textEl.selectAll('*').remove();
+    // Image nodes show caption below
+    if (node.type === 'image') {
+      if (node.label) {
+        textEl.append('tspan').attr('x', 0).attr('y', r + 14)
+          .attr('text-anchor', 'middle').attr('dominant-baseline', 'auto')
+          .text(node.label);
+        textEl.attr('font-size', 12).attr('font-family', 'Microsoft YaHei')
+          .attr('fill', '#e0e0e0').style('pointer-events','none').style('user-select','none');
+      }
+      setupNodeEvents(g, node);
+      return;
+    }
     const lines = (node.label || '').split('\\n');
     const lineH = (node.fontSize || 14) * 1.3;
     const totalH = lines.length * lineH;
@@ -1188,6 +1268,12 @@ function setupNodeEvents(g, node) {
   .on('mousedown', function(evt) {
     if (evt.button === 2) return;
     evt.stopPropagation();
+
+    // Connect mode: clicking any node starts/completes a connection
+    if (state.connectMode) {
+      startConnecting(node, evt);
+      return;
+    }
 
     // Check if clicking on conn dot
     const target = evt.target;
@@ -1636,10 +1722,12 @@ function addEdge(sourceId, targetId) {
   const exists = state.edges.find(e => e.source === sourceId && e.target === targetId);
   if (exists) { showToast('该方向的连线已存在','warning'); return; }
   const id = genId('e');
+  const ds = state.defaultEdgeStyle;
   const edge = {
     id, source: sourceId, target: targetId,
-    color: '#999', width: 1.5, arrowMode: 'single',
-    lineStyle: 'solid', curvature: 0, label: ''
+    color: ds.color || '#999', width: ds.width || 1.5,
+    arrowMode: ds.arrowMode || 'single',
+    lineStyle: ds.lineStyle || 'solid', curvature: 0, label: ''
   };
   state.edges.push(edge);
   saveHistory('添加连线');
@@ -2092,6 +2180,73 @@ function setupToolbar() {
     applyColorScheme(this.value);
   });
 
+  // Import image
+  document.getElementById('btn-import-img').addEventListener('click', () => {
+    document.getElementById('img-input').click();
+  });
+  document.getElementById('img-input').addEventListener('change', function() {
+    const file = this.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const src = e.target.result;
+      const img = new Image();
+      img.onload = () => {
+        updateSvgSize();
+        const cx = (svgWidth/2 - state.transform.x) / state.transform.k;
+        const cy = (svgHeight/2 - state.transform.y) / state.transform.k;
+        const id = genId('n');
+        const maxR = 100;
+        const r = Math.min(maxR, Math.max(40, Math.round(Math.min(img.width, img.height) / 10)));
+        const node = {
+          id, label: file.name.replace(/\.[^.]+$/, ''),
+          type: 'image', src,
+          x: cx, y: cy, r,
+          shape: 'rect', stroke: '#4A90D9', strokeWidth: 2, opacity: 1,
+          fill: 'none', fontSize: 12, fontFamily: 'Microsoft YaHei', fontColor: '#e0e0e0',
+          bold: false, italic: false
+        };
+        state.nodes.push(node);
+        state.selectedNodes.clear();
+        state.selectedNodes.add(id);
+        saveHistory('上传图片');
+        render(); updateLayersPanel(); updateRightPanel();
+        showToast('图片已添加到画布', 'success', 1800);
+      };
+      img.src = src;
+    };
+    reader.readAsDataURL(file);
+    this.value = '';
+  });
+
+  // Connect mode toggle
+  const btnConnect = document.getElementById('btn-connect-mode');
+  const espPopup = document.getElementById('edge-style-popup');
+  btnConnect.addEventListener('click', (e) => {
+    e.stopPropagation();
+    state.connectMode = !state.connectMode;
+    btnConnect.classList.toggle('active', state.connectMode);
+    espPopup.classList.toggle('open', state.connectMode);
+    if (state.connectMode) showToast('连线模式：点击节点，拖到目标节点完成连线', 'info', 2500);
+  });
+  document.addEventListener('click', () => { espPopup.classList.remove('open'); });
+  espPopup.addEventListener('click', e => e.stopPropagation());
+
+  // Default edge style controls
+  document.getElementById('def-edge-color').addEventListener('input', function() {
+    state.defaultEdgeStyle.color = this.value;
+  });
+  document.getElementById('def-edge-width').addEventListener('input', function() {
+    state.defaultEdgeStyle.width = parseFloat(this.value);
+    document.getElementById('def-edge-width-val').textContent = this.value;
+  });
+  document.getElementById('def-edge-style').addEventListener('change', function() {
+    state.defaultEdgeStyle.lineStyle = this.value;
+  });
+  document.getElementById('def-edge-arrow').addEventListener('change', function() {
+    state.defaultEdgeStyle.arrowMode = this.value;
+  });
+
   // Import
   document.getElementById('btn-import').addEventListener('click', () => {
     document.getElementById('file-input').click();
@@ -2241,6 +2396,12 @@ function setupKeyboard() {
       else if (state.selectedEdge) deleteEdge(state.selectedEdge);
     }
     if (e.key === 'Escape') {
+      if (state.connectMode) {
+        state.connectMode = false;
+        document.getElementById('btn-connect-mode').classList.remove('active');
+        document.getElementById('edge-style-popup').classList.remove('open');
+        showToast('已退出连线模式', 'info', 1200);
+      }
       state.selectedNodes.clear();
       state.selectedEdge = null;
       cancelNodeEdit();
@@ -2699,19 +2860,9 @@ function applyColorScheme(scheme) {
 function init() {
   updateSvgSize();
 
-  // Load sample data
-  state.nodes = deepClone(SAMPLE_DATA.nodes);
-  state.edges = deepClone(SAMPLE_DATA.edges);
-
-  // Set id counters
-  state.nodes.forEach(n => {
-    const num = parseInt(n.id.replace('n',''));
-    if (num > state.nodeIdCounter) state.nodeIdCounter = num;
-  });
-  state.edges.forEach(e => {
-    const num = parseInt(e.id.replace('e',''));
-    if (num > state.edgeIdCounter) state.edgeIdCounter = num;
-  });
+  // Start with empty workspace
+  state.nodes = [];
+  state.edges = [];
 
   // Initial history snapshot
   saveHistory('初始状态');
